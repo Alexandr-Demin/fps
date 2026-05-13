@@ -1,0 +1,29 @@
+# cloudflared named-tunnel config — sample. Copy to `cloudflared.yml`
+# alongside this file (the real one is gitignored) and fill in your tunnel
+# id, credentials path, and hostname.
+#
+# Pre-requisites — see MULTIPLAYER.md "Public URL via Cloudflare Tunnel"
+# for the full walkthrough:
+#   1. cloudflared installed on this server
+#   2. `cloudflared tunnel login` done once (writes ~/.cloudflared/cert.pem)
+#   3. `cloudflared tunnel create sector17` ran (creates a tunnel id and a
+#      credentials JSON in ~/.cloudflared/<tunnel-id>.json)
+#   4. The hostname's DNS pointed at the tunnel — either inside a Cloudflare
+#      zone you own, or via a free subdomain provider that accepts a CNAME
+#      to <tunnel-id>.cfargotunnel.com (e.g. is-a.dev).
+#
+# Then run:
+#   cloudflared tunnel --config /path/to/cloudflared.yml run
+
+tunnel: <tunnel-id>                                # uuid from `cloudflared tunnel create`
+credentials-file: /home/<you>/.cloudflared/<tunnel-id>.json
+
+# Ingress rules: match incoming hostname → forward to the local sector-17
+# server. Cloudflare terminates TLS — the upstream stays http:// on the
+# loopback. The game's HTTP and WebSocket share the same port, so a single
+# ingress rule covers both.
+ingress:
+  - hostname: arena.<your-subdomain>.is-a.dev
+    service: http://localhost:2567
+  # Catch-all 404 for any other hostname routed to this tunnel.
+  - service: http_status:404

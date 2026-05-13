@@ -66,6 +66,98 @@ This is the path you want for sharing a link with friends.
 4. Every client opens `http://192.168.1.42:2567`. No further config — the
    client auto-targets the same origin for WS.
 
+## Public URL via Cloudflare Tunnel (free, stable, TLS)
+
+The same-origin server is built to sit behind a tunnel. With Cloudflare's
+named tunnel + a free `is-a.dev` subdomain you can hand friends a single
+`https://arena.<you>.is-a.dev` URL — no port, no IP, no client config.
+
+### What you need
+
+- A free [Cloudflare](https://www.cloudflare.com/) account.
+- `cloudflared` installed on the same machine that runs the game server
+  ([Cloudflare's install docs](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/)).
+- A GitHub account (for the `is-a.dev` PR).
+
+You do **not** need to own a domain or pay anything.
+
+### One-time setup
+
+1. **Authenticate cloudflared with your Cloudflare account.** Browser
+   pops open once.
+
+   ```
+   cloudflared tunnel login
+   ```
+
+   Writes `~/.cloudflared/cert.pem`.
+
+2. **Create the tunnel.** Pick any name — `sector17` is fine.
+
+   ```
+   cloudflared tunnel create sector17
+   ```
+
+   Note the printed **tunnel id** (uuid). Credentials JSON lands at
+   `~/.cloudflared/<tunnel-id>.json`.
+
+3. **Claim a free subdomain on `is-a.dev`** (or `js.org` / `eu.org` /
+   `afraid.org` — any provider that lets you set a CNAME). The
+   `is-a.dev` flow:
+
+   - Fork [github.com/is-a-dev/register](https://github.com/is-a-dev/register).
+   - Add `domains/arena-<your-handle>.json`:
+
+     ```json
+     {
+       "owner": {
+         "username": "<your-github-handle>",
+         "email": "<you@example.com>"
+       },
+       "record": {
+         "CNAME": "<tunnel-id>.cfargotunnel.com"
+       }
+     }
+     ```
+
+     `<tunnel-id>` is the uuid from step 2.
+
+   - Open a PR. Approval typically takes 1–3 days. Once merged your
+     subdomain `arena-<handle>.is-a.dev` is live and points at the
+     tunnel.
+
+4. **Configure cloudflared.** Copy the template and fill it in:
+
+   ```
+   cp infra/cloudflared.example.yml infra/cloudflared.yml
+   # then edit: tunnel id, credentials-file path, hostname
+   ```
+
+   The real `cloudflared.yml` is gitignored — it embeds your tunnel id
+   path to credentials, treat it like a secret.
+
+### Daily run
+
+```
+cloudflared tunnel --config infra/cloudflared.yml run    # terminal 1
+npm run start                                            # terminal 2
+```
+
+Open `https://arena-<handle>.is-a.dev/` in any browser — Cloudflare
+terminates TLS, the WebSocket upgrades to `wss://` on the same origin,
+and the game just works. Friends use the same URL.
+
+### Quick tunnel (zero setup, throwaway URL)
+
+For ad-hoc sessions without DNS or PR work:
+
+```
+cloudflared tunnel --url http://localhost:2567
+```
+
+Prints a random `https://*.trycloudflare.com` URL each run. No
+authentication, no stability — fine for "let's play once tonight."
+
 ## Tailscale (friends across the internet, no port-forwarding)
 
 [Tailscale](https://tailscale.com/) gives every device a private IP in your

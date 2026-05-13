@@ -10,3 +10,8 @@ dist-ssr
 .vscode/*
 !.vscode/extensions.json
 .idea
+
+# Real cloudflared config + tunnel credentials — sample lives in
+# infra/cloudflared.example.yml.
+infra/cloudflared.yml
+infra/*.json
