@@ -1,16 +1,23 @@
-# cloudflared named-tunnel config — sample. Copy to `cloudflared.yml`
-# alongside this file (the real one is gitignored) and fill in your tunnel
-# id, credentials path, and hostname.
+# cloudflared named-tunnel config — sample.
 #
-# Pre-requisites — see MULTIPLAYER.md "Public URL via Cloudflare Tunnel"
-# for the full walkthrough:
+# Use only if you own a domain that's added to your Cloudflare account.
+# Free subdomain providers (is-a.dev, js.org, ...) reject CNAMEs to
+# *.cfargotunnel.com — see "Why not is-a.dev" in MULTIPLAYER.md.
+#
+# For a public URL without a domain, prefer either Quick Cloudflare Tunnel
+# or Tailscale Funnel — both walked through in MULTIPLAYER.md.
+#
+# Copy to `cloudflared.yml` alongside this file (the real one is gitignored)
+# and fill in your tunnel id, credentials path, and hostname.
+#
+# Pre-requisites — see MULTIPLAYER.md "Named Cloudflare Tunnel" for the
+# full walkthrough:
 #   1. cloudflared installed on this server
 #   2. `cloudflared tunnel login` done once (writes ~/.cloudflared/cert.pem)
-#   3. `cloudflared tunnel create sector17` ran (creates a tunnel id and a
+#   3. `cloudflared tunnel create sector17` (creates a tunnel id and a
 #      credentials JSON in ~/.cloudflared/<tunnel-id>.json)
-#   4. The hostname's DNS pointed at the tunnel — either inside a Cloudflare
-#      zone you own, or via a free subdomain provider that accepts a CNAME
-#      to <tunnel-id>.cfargotunnel.com (e.g. is-a.dev).
+#   4. `cloudflared tunnel route dns sector17 arena.yourdomain.com`
+#      (wires the hostname in your Cloudflare zone to the tunnel)
 #
 # Then run:
 #   cloudflared tunnel --config /path/to/cloudflared.yml run
@@ -23,7 +30,7 @@ credentials-file: /home/<you>/.cloudflared/<tunnel-id>.json
 # loopback. The game's HTTP and WebSocket share the same port, so a single
 # ingress rule covers both.
 ingress:
-  - hostname: arena.<your-subdomain>.is-a.dev
+  - hostname: arena.yourdomain.com
     service: http://localhost:2567
   # Catch-all 404 for any other hostname routed to this tunnel.
   - service: http_status:404

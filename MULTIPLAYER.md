@@ -66,97 +66,83 @@ This is the path you want for sharing a link with friends.
 4. Every client opens `http://192.168.1.42:2567`. No further config — the
    client auto-targets the same origin for WS.
 
-## Public URL via Cloudflare Tunnel (free, stable, TLS)
+## Public URL — share a link, friends just open it
 
-The same-origin server is built to sit behind a tunnel. With Cloudflare's
-named tunnel + a free `is-a.dev` subdomain you can hand friends a single
-`https://arena.<you>.is-a.dev` URL — no port, no IP, no client config.
+Three paths, none require port-forwarding or a router config. All give
+real HTTPS so the WebSocket auto-upgrades to `wss://` on the same origin.
 
-### What you need
+### Quick Cloudflare Tunnel (recommended for casual play)
 
-- A free [Cloudflare](https://www.cloudflare.com/) account.
-- `cloudflared` installed on the same machine that runs the game server
-  ([Cloudflare's install docs](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/)).
-- A GitHub account (for the `is-a.dev` PR).
-
-You do **not** need to own a domain or pay anything.
-
-### One-time setup
-
-1. **Authenticate cloudflared with your Cloudflare account.** Browser
-   pops open once.
-
-   ```
-   cloudflared tunnel login
-   ```
-
-   Writes `~/.cloudflared/cert.pem`.
-
-2. **Create the tunnel.** Pick any name — `sector17` is fine.
-
-   ```
-   cloudflared tunnel create sector17
-   ```
-
-   Note the printed **tunnel id** (uuid). Credentials JSON lands at
-   `~/.cloudflared/<tunnel-id>.json`.
-
-3. **Claim a free subdomain on `is-a.dev`** (or `js.org` / `eu.org` /
-   `afraid.org` — any provider that lets you set a CNAME). The
-   `is-a.dev` flow:
-
-   - Fork [github.com/is-a-dev/register](https://github.com/is-a-dev/register).
-   - Add `domains/arena-<your-handle>.json`:
-
-     ```json
-     {
-       "owner": {
-         "username": "<your-github-handle>",
-         "email": "<you@example.com>"
-       },
-       "record": {
-         "CNAME": "<tunnel-id>.cfargotunnel.com"
-       }
-     }
-     ```
-
-     `<tunnel-id>` is the uuid from step 2.
-
-   - Open a PR. Approval typically takes 1–3 days. Once merged your
-     subdomain `arena-<handle>.is-a.dev` is live and points at the
-     tunnel.
-
-4. **Configure cloudflared.** Copy the template and fill it in:
-
-   ```
-   cp infra/cloudflared.example.yml infra/cloudflared.yml
-   # then edit: tunnel id, credentials-file path, hostname
-   ```
-
-   The real `cloudflared.yml` is gitignored — it embeds your tunnel id
-   path to credentials, treat it like a secret.
-
-### Daily run
+Zero signup, instant. URL is random per `cloudflared` run and lives until
+you stop the process.
 
 ```
-cloudflared tunnel --config infra/cloudflared.yml run    # terminal 1
-npm run start                                            # terminal 2
+cloudflared tunnel --url http://localhost:2567    # terminal 1
+npm run start                                     # terminal 2
 ```
 
-Open `https://arena-<handle>.is-a.dev/` in any browser — Cloudflare
-terminates TLS, the WebSocket upgrades to `wss://` on the same origin,
-and the game just works. Friends use the same URL.
+`cloudflared` prints `https://<random>.trycloudflare.com` — that's your
+shareable URL. Reboot or Ctrl+C → next start yields a different URL.
 
-### Quick tunnel (zero setup, throwaway URL)
+Install once: Windows `winget install Cloudflare.cloudflared`, macOS
+`brew install cloudflare/cloudflare/cloudflared`, Linux — see
+[Cloudflare's downloads](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/).
 
-For ad-hoc sessions without DNS or PR work:
+### Tailscale Funnel (free, permanent URL, no domain needed)
+
+Permanent public hostname of the form `<machine>.<tailnet>.ts.net`. Free
+Personal plan, no card, URL survives reboots.
+
+1. Install [Tailscale](https://tailscale.com/download) on the host, sign
+   in (Google/GitHub), `tailscale up`.
+2. Enable Funnel for the game port:
+
+   ```
+   tailscale funnel --bg http://localhost:2567
+   ```
+
+   (older CLI: `tailscale serve --bg --https=443 http://localhost:2567`
+   then `tailscale funnel 443 on`). Tailscale prints the public URL.
+
+3. `npm run start` as usual. Friends open the printed URL — they do
+   **not** need Tailscale.
+
+Friends without Tailscale still reach you via Funnel. Bandwidth is more
+than enough for 1v1 duels; not built for tournaments.
+
+### Named Cloudflare Tunnel with your own domain
+
+If you own (or pick up cheaply) a domain added to your Cloudflare zone,
+you get a stable branded URL like `https://arena.yourdomain.com/`. The
+config template lives in `infra/cloudflared.example.yml`.
 
 ```
-cloudflared tunnel --url http://localhost:2567
+cloudflared tunnel login                                     # once → ~/.cloudflared/cert.pem
+cloudflared tunnel create sector17                           # once → prints tunnel id
+cloudflared tunnel route dns sector17 arena.yourdomain.com   # once → wires DNS in your zone
+cp infra/cloudflared.example.yml infra/cloudflared.yml       # once → fill in tunnel id, creds path, hostname (gitignored)
+cloudflared tunnel --config infra/cloudflared.yml run        # daily — terminal 1
+npm run start                                                # daily — terminal 2
 ```
 
-Prints a random `https://*.trycloudflare.com` URL each run. No
-authentication, no stability — fine for "let's play once tonight."
+### Why not is-a.dev / js.org / free subdomain providers
+
+Tempting (free permanent subdomain pointing at a Cloudflare tunnel) but
+**doesn't work in practice**:
+
+- **is-a.dev** explicitly denylists `*.cfargotunnel.com` CNAMEs in their
+  PR validator (`util/disallowed-cnames.json` in `is-a-dev/register`).
+  Their CI auto-closes such PRs and the repo's README warns about
+  blocking accounts that submit invalid PRs.
+- **js.org** requires a real software project page (static, not a
+  game server).
+- **eu.org** accepts the CNAME but review takes weeks and is manual.
+- **afraid.org** works but the `*.mooo.com`-style hostnames have spam
+  reputation in Telegram/Slack link previews.
+
+If you want stable + free + no domain → use **Tailscale Funnel** above.
+If you want stable + own branding → buy a $2/yr domain and use the named
+tunnel path. Don't sink time into the free-subdomain rabbit hole.
 
 ## Tailscale (friends across the internet, no port-forwarding)
 
