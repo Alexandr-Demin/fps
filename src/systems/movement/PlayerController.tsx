@@ -68,6 +68,12 @@ export function PlayerController() {
   const accumulator = useRef(0)
   const inputBuffer = useRef<PlayerInputCmd[]>([])
   const lastReconciledServerTick = useRef(0)
+  // Render-time error vector for smooth reconciliation. On every reconcile,
+  // (predicted − server) is added to this; the render position is
+  // sim.pos + renderError, and renderError exponentially decays each frame
+  // toward zero. Visual outcome: a subtle smooth slide back instead of a
+  // hard rubber-band snap.
+  const renderError = useRef(new Vector3())
 
   // ===== Camera / FX state (rendered every frame, NOT per sim tick) =====
   const eyeHeight = useRef(PLAYER.EYE_HEIGHT)
@@ -195,6 +201,8 @@ export function PlayerController() {
       playerHandle.pendingTeleport = null
       sim.current = createPlayerSimState([tx, ty, tz])
       inputBuffer.current.length = 0
+      // Hard cut — no smooth-correction across a teleport.
+      renderError.current.set(0, 0, 0)
       body.setTranslation({ x: tx, y: ty, z: tz }, true)
     }
 
@@ -214,9 +222,16 @@ export function PlayerController() {
           inputBuffer.current.shift()
         }
 
-        // Reset sim to server-authoritative pos+vel at ackedTick. We keep
-        // the client's current yaw/pitch — those are user-driven and
-        // would lag if we accepted the server's stale values.
+        // Replay-from-server to get the predicted position AT NOW given
+        // the server's authoritative state at `ackedTick`. Compare with
+        // the client's current prediction; if drift is below threshold,
+        // accept the client (no visual disturbance). If above, slide the
+        // visual smoothly from the old (predicted) position to the new
+        // (corrected) position via renderError.
+        const prevPosX = sim.current.pos[0]
+        const prevPosY = sim.current.pos[1]
+        const prevPosZ = sim.current.pos[2]
+
         sim.current.pos[0] = snap.pos[0]
         sim.current.pos[1] = snap.pos[1]
         sim.current.pos[2] = snap.pos[2]
@@ -230,6 +245,53 @@ export function PlayerController() {
         for (const cmd of inputBuffer.current) {
           stepPlayer(sim.current, cmd, simCtx, SIM_DT)
         }
+
+        // Drift = how far the new (post-replay) position is from where
+        // the client just thought it was. Under threshold → snap-back
+        // to the client's prediction (no reconcile visible at all);
+        // over → fold the diff into renderError so the camera slides
+        // smoothly toward truth over the next ~150ms instead of
+        // teleporting.
+        const dx = prevPosX - sim.current.pos[0]
+        const dy = prevPosY - sim.current.pos[1]
+        const dz = prevPosZ - sim.current.pos[2]
+        const driftSq = dx * dx + dy * dy + dz * dz
+        const SKIP_THRESHOLD_SQ = 0.05 * 0.05 // 5 cm
+        if (driftSq < SKIP_THRESHOLD_SQ) {
+          // Client was right; ignore the server correction entirely.
+          sim.current.pos[0] = prevPosX
+          sim.current.pos[1] = prevPosY
+          sim.current.pos[2] = prevPosZ
+          body.setTranslation(
+            { x: prevPosX, y: prevPosY, z: prevPosZ },
+            true,
+          )
+        } else {
+          // Above threshold but cap so a huge desync (lag spike, packet
+          // loss) doesn't manifest as a slow drift over many seconds —
+          // hard-snap visuals if the error is enormous.
+          const HARD_SNAP_DIST = 2.0 // meters
+          if (driftSq > HARD_SNAP_DIST * HARD_SNAP_DIST) {
+            renderError.current.set(0, 0, 0)
+          } else {
+            // Smooth: keep the visual where it was, sim moved to truth.
+            renderError.current.x += dx
+            renderError.current.y += dy
+            renderError.current.z += dz
+          }
+        }
+      }
+    }
+
+    // Exponential decay of the visual error toward zero. Framerate-
+    // independent: half-life ≈ 100ms (τ ≈ 144ms).
+    {
+      const decay = Math.exp(-dt / 0.144)
+      renderError.current.multiplyScalar(decay)
+      // Snap to exact zero once the residual is sub-millimeter to keep
+      // floating-point noise out of downstream comparisons.
+      if (renderError.current.lengthSq() < 1e-8) {
+        renderError.current.set(0, 0, 0)
       }
     }
 
@@ -284,7 +346,15 @@ export function PlayerController() {
     }
 
     // ===== Mirror sim state to playerHandle =====
-    playerHandle.pos.set(sim.current.pos[0], sim.current.pos[1], sim.current.pos[2])
+    // playerHandle.pos is the *visual* position — sim.pos + renderError —
+    // so camera and weapon hitscan origin slide smoothly when a
+    // reconciliation correction is decaying. Physics-truth (the rapier
+    // body + sim.pos itself) is unaffected.
+    playerHandle.pos.set(
+      sim.current.pos[0] + renderError.current.x,
+      sim.current.pos[1] + renderError.current.y,
+      sim.current.pos[2] + renderError.current.z,
+    )
     playerHandle.vel.set(sim.current.vel[0], sim.current.vel[1], sim.current.vel[2])
     playerHandle.grounded = sim.current.grounded
     playerHandle.yaw = sim.current.yaw

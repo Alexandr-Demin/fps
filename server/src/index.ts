@@ -6,9 +6,13 @@ import { WebSocketServer } from 'ws'
 import RAPIER from '@dimforge/rapier3d-compat'
 import { Lobby } from './Lobby.js'
 import { MAX_PLAYERS_PER_ROOM, type MapData } from '../../shared/src/protocol.js'
+import { SIM_TICK_HZ } from '../../shared/src/sim/constants.js'
 
 const PORT = Number(process.env.PORT ?? 2567)
-const TICK_RATE = Number(process.env.TICK_RATE ?? 30)
+// Target sim cadence. The actual `setInterval` polls more frequently and
+// uses an accumulator (below) to fire exactly SIM_TICK_HZ ticks per real
+// second regardless of timer drift / tick-handler cost.
+const TICK_RATE = Number(process.env.TICK_RATE ?? SIM_TICK_HZ)
 // Per-room cap. Defaults to the protocol-declared MAX_PLAYERS_PER_ROOM (2)
 // but stays env-configurable so a future FFA mode can lift it.
 const MAX_PLAYERS = Number(process.env.MAX_PLAYERS ?? MAX_PLAYERS_PER_ROOM)
@@ -136,7 +140,27 @@ async function main() {
   wss.on('connection', (ws) => lobby.onConnection(ws))
   wss.on('error', (err) => console.error('[server] wss error:', err))
 
-  const interval = setInterval(() => lobby.tick(), 1000 / TICK_RATE)
+  // Fixed-step accumulator loop. A naive setInterval(fn, 1000/30) drifts
+  // on Windows because Date.now() is quantised at the OS tick (~15ms),
+  // so we use performance.now() for sub-ms accumulation. Tick handler
+  // cost (Rapier WASM, etc.) is absorbed by stepping multiple times per
+  // poll when needed; up to 5 catch-up ticks bounds the worst-case so
+  // a long GC pause doesn't spiral.
+  const TICK_MS = 1000 / TICK_RATE
+  let lastTickAt = performance.now()
+  let accumulator = 0
+  const interval = setInterval(() => {
+    const now = performance.now()
+    accumulator += now - lastTickAt
+    lastTickAt = now
+    let stepsThisPoll = 0
+    while (accumulator >= TICK_MS && stepsThisPoll < 5) {
+      accumulator -= TICK_MS
+      stepsThisPoll++
+      lobby.tick()
+    }
+    if (accumulator > TICK_MS * 5) accumulator = 0
+  }, Math.max(1, Math.floor(TICK_MS / 2)))
 
   httpServer.listen(PORT, () => {
     console.log(

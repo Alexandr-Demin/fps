@@ -62,7 +62,18 @@ export const CHAR_CONTROLLER = {
 } as const
 
 // Fixed-timestep tick for both prediction and server simulation. 30 Hz
-// matches the existing TICK_RATE default; bumping requires re-tuning
-// accel / friction constants.
+// is the sustainable rate for the Node + Rapier WASM combo on a typical
+// Windows server (tested upper-bound ≈ 38 Hz with overhead). Bumping
+// this requires the server actually delivering that rate — if real
+// tick rate falls below SIM_TICK_HZ, the server's sim advances slower
+// than real time and predictions on the client drift continuously,
+// which smooth reconciliation cannot save.
+//
+// Visual smoothness on the local player is recovered via render-time
+// blending of the residual reconciliation error (see PlayerController's
+// `renderError`); raw 30Hz step is acceptable for friends-only tier.
+//
+// All accel / friction constants are dt-scaled, so the number can be
+// tuned later without re-tuning feel.
 export const SIM_TICK_HZ = 30
 export const SIM_DT = 1 / SIM_TICK_HZ
