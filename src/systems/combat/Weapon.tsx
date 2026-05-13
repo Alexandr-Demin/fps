@@ -45,7 +45,7 @@ export function Weapon() {
     cooldown.current = Math.max(0, cooldown.current - dt)
     reloadCooldown.current = Math.max(0, reloadCooldown.current - dt)
 
-    if (phase !== 'playing') return
+    if (phase !== 'playing' && phase !== 'mpPlaying') return
 
     // Determine if we should fire this frame. Allow held-fire (semi-auto feel
     // is preserved by FIRE_INTERVAL gating).

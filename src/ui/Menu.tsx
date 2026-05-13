@@ -56,14 +56,7 @@ export function MainMenu() {
         ) : (
           <div className="menu-buttons">
             <button onClick={onDeploy}>DEPLOY · SOLO</button>
-            <button
-              className="soon"
-              disabled
-              title="Network play — coming soon"
-            >
-              DEATHMATCH
-              <span className="menu-badge">SOON</span>
-            </button>
+            <button onClick={() => setPhase('mpConnect')}>DEATHMATCH</button>
             <button onClick={enterEditor}>EDITOR</button>
             <button onClick={openSettings}>SETTINGS</button>
           </div>

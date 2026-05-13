@@ -110,7 +110,7 @@ export function PlayerController() {
 
   // Spawn / respawn handling
   useEffect(() => {
-    if (phase === 'playing') {
+    if (phase === 'playing' || phase === 'mpPlaying') {
       const map = useGameStore.getState().currentMap
       const spawns = filterByKind(map.entities, 'playerSpawn')
       const spawn: [number, number, number] =
@@ -153,7 +153,7 @@ export function PlayerController() {
   }, [])
 
   useFrame((_, dtRaw) => {
-    if (phase !== 'playing') return
+    if (phase !== 'playing' && phase !== 'mpPlaying') return
     const body = bodyRef.current
     if (!body) return
     const dt = Math.min(dtRaw, 1 / 30) // clamp to avoid tunnelling on tab refocus

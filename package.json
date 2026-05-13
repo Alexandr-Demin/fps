@@ -5,6 +5,8 @@
   "type": "module",
   "description": "SECTOR - 17 — browser arena FPS demo",
   "scripts": {
+    "server": "tsx server/src/index.ts",
+    "server:watch": "tsx watch server/src/index.ts",
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview --host"
@@ -19,6 +21,10 @@
     "zustand": "^4.5.2"
   },
   "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/ws": "^8.5.10",
+    "tsx": "^4.19.0",
+    "ws": "^8.18.0",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
     "@types/three": "^0.163.0",
