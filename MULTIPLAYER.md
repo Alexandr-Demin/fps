@@ -192,18 +192,15 @@ VITE_MP_SERVER=ws://localhost:2567
 
 ## Known limitations
 
-- **Server-authoritative movement.** Server runs the same Rapier-based
-  physics as the client (shared `shared/src/sim/` module), receives
-  input commands at 30Hz, and broadcasts authoritative position +
-  velocity in every snapshot. Clients predict locally and reconcile
-  against the server tick referenced by each snapshot's `ackedTick`.
-  Trivial cheats (teleport, wall-clipping, fly) are no longer
-  possible. Damage values are still client-reported (clamped server-side
-  at 200/hit); shot raycasts are still resolved by the shooter.
-- **No lag compensation on hits.** Even with authoritative movement,
-  hits are resolved on the shooter's machine against the latest remote
-  position — fast strafing players will eat phantom shots at higher
-  ping. See Phase 3 step 6 (rewind-based lag comp).
+- **Soft-authoritative.** Server trusts client-reported positions (no
+  validation) and client-reported hits (damage clamped to ≤200 as a
+  sanity bound). Cheating is trivial — fine for friends-only matches.
+- **No prediction/reconciliation.** Local player is authoritative for
+  itself; remote players are interpolated from raw server snapshots
+  (~30Hz, 30–100ms behind).
+- **No lag compensation.** Hits resolved on shooter's machine against
+  the latest remote position — fast strafing players will eat phantom
+  shots at higher ping.
 - **No reconnect.** WebSocket drop → main menu with an error. Click
   ARENA DUEL again to retry.
 - **No bots in MP.** Skipped on `mpPlaying`.

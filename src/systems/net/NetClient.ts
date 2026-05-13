@@ -14,13 +14,14 @@ import {
   type PlayerId,
   type RoomId,
 } from '@shared/protocol'
-import type { PlayerInputCmd } from '@shared/sim/player-sim'
 
 // How often we ping the server for RTT measurement.
 const PING_INTERVAL_MS = 1000
 
 class NetClientImpl {
   private ws: WebSocket | null = null
+  private lastSentAt = 0
+  private currentTick = 0
   private myId: string | null = null
   // Promise machinery for `connect()` — resolves on lobbyWelcome (we made
   // it into the lobby) and rejects on reject / close-before-welcome.
@@ -126,25 +127,23 @@ class NetClientImpl {
     return !!this.ws && this.ws.readyState === WebSocket.OPEN
   }
 
-  /**
-   * Send a fixed-step input command. PlayerController calls this once per
-   * sim tick (30Hz). Server queues the most-recent command per player
-   * and consumes it on its next sim tick.
-   */
-  sendInput(cmd: PlayerInputCmd) {
+  sendInput() {
     if (!this.isConnected()) return
+    if (!playerHandle.body) return
+    // While paused (mpPaused) / dead (mpDead), NetRoom is still mounted so
+    // remote players keep interpolating — but we stop sending our own input
+    // so the server sees us as stationary.
     if (useGameStore.getState().phase !== 'mpPlaying') return
+    const now = performance.now()
+    if (now - this.lastSentAt < 33) return
+    this.lastSentAt = now
     const msg: C2S = {
       t: 'input',
-      tick: cmd.tick,
-      yaw: cmd.yaw,
-      pitch: cmd.pitch,
-      forward: cmd.forward,
-      strafe: cmd.strafe,
-      sprintHeld: cmd.sprintHeld,
-      crouchHeld: cmd.crouchHeld,
-      jumpEdge: cmd.jumpEdge,
-      crouchEdge: cmd.crouchEdge,
+      tick: ++this.currentTick,
+      pos: [playerHandle.pos.x, playerHandle.pos.y, playerHandle.pos.z],
+      vel: [playerHandle.vel.x, playerHandle.vel.y, playerHandle.vel.z],
+      yaw: playerHandle.yaw,
+      pitch: playerHandle.pitch,
     }
     this.ws!.send(JSON.stringify(msg))
   }
@@ -224,7 +223,6 @@ class NetClientImpl {
         // wait for the user to pick / create another room.
         useNetStore.getState().setCurrentRoomId(null)
         useNetStore.getState().clearRemotes()
-        useNetStore.getState().setMySnap(null)
         useNetStore.getState().setRooms(msg.rooms)
         useNetStore.getState().setPhase('lobby')
         useGameStore.getState().setPhase('mpLobby')
@@ -248,17 +246,6 @@ class NetClientImpl {
       }
       case 'snapshot': {
         const myId = this.myId
-        const me = myId ? msg.players.find((p) => p.id === myId) : undefined
-        if (me) {
-          useNetStore.getState().setMySnap({
-            tick: msg.tick,
-            pos: me.pos,
-            vel: me.vel,
-            yaw: me.yaw,
-            pitch: me.pitch,
-            ackedTick: me.ackedTick,
-          })
-        }
         useNetStore
           .getState()
           .upsertRemote(msg.players.filter((p) => p.id !== myId))
@@ -332,10 +319,17 @@ class NetClientImpl {
       }
       case 'respawned': {
         if (msg.id === this.myId) {
-          // Signal PlayerController to reset its sim state to the new
-          // spawn on the next render frame. It will also teleport the
-          // rapier body and clear the input buffer.
-          playerHandle.pendingTeleport = [msg.pos[0], msg.pos[1], msg.pos[2]]
+          // Teleport BEFORE flipping phase so PlayerController's useFrame
+          // doesn't run a tick from the dead-position before being told
+          // about the new one.
+          if (playerHandle.body) {
+            playerHandle.body.setNextKinematicTranslation({
+              x: msg.pos[0], y: msg.pos[1], z: msg.pos[2],
+            })
+            playerHandle.body.setTranslation(
+              { x: msg.pos[0], y: msg.pos[1], z: msg.pos[2] }, true
+            )
+          }
           playerHandle.pos.set(msg.pos[0], msg.pos[1], msg.pos[2])
           playerHandle.vel.set(0, 0, 0)
           useGameStore.setState({
@@ -399,7 +393,6 @@ class NetClientImpl {
     useNetStore.getState().setMyId(null)
     useNetStore.getState().setRooms([])
     useNetStore.getState().setCurrentRoomId(null)
-    useNetStore.getState().setMySnap(null)
     useNetStore.getState().setRtt(null)
     if (wasInSession) {
       useNetStore.getState().setError(`disconnected: ${reason}`)

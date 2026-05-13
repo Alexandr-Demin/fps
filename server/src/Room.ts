@@ -1,5 +1,4 @@
 import { WebSocket } from 'ws'
-import type RAPIER from '@dimforge/rapier3d-compat'
 import { Player } from './Player.js'
 import {
   MP_RESPAWN_MS,
@@ -13,9 +12,6 @@ import {
   type RoomState,
   type RoomSummary,
 } from '../../shared/src/protocol.js'
-import { populateMapColliders } from '../../shared/src/sim/world.js'
-import { stepPlayer } from '../../shared/src/sim/player-sim.js'
-import { PLAYER_PHYS, SIM_DT } from '../../shared/src/sim/constants.js'
 
 // Defensive cap on a single client-reported hit. Real anti-cheat will come
 // later; this is just a sanity bound so a typo / glitched packet can't reset
@@ -33,16 +29,11 @@ export class Room {
   readonly players = new Map<PlayerId, Player>()
   private tickCount = 0
   private spawns: Vec3[]
-  // Server-side Rapier world holding the map's static colliders + a
-  // capsule per active player. Re-built once at room creation; players'
-  // capsules are added/removed on join/leave.
-  private readonly world: RAPIER.World
 
   constructor(
     public readonly id: RoomId,
     public readonly mapData: MapData,
     public readonly maxPlayers: number,
-    private readonly rapier: typeof RAPIER,
     // Called whenever the room's composition changes (join, leave, full,
     // empty) so the Lobby can push a fresh roomList to other lobby
     // connections.
@@ -52,18 +43,6 @@ export class Room {
       .filter((e: { kind: string }) => e.kind === 'playerSpawn')
       .map((e: { pos: Vec3 }) => e.pos as Vec3)
     if (this.spawns.length === 0) this.spawns.push([0, 2.5, 0])
-
-    this.world = new rapier.World({ x: 0, y: -PLAYER_PHYS.GRAVITY, z: 0 })
-    populateMapColliders(rapier, this.world, mapData)
-  }
-
-  /**
-   * Match-relative seconds. Driven by tickCount * SIM_DT — keeps the
-   * bhop-window / land-time bookkeeping in sync with the same clock the
-   * client uses for prediction.
-   */
-  private get matchTime(): number {
-    return this.tickCount * SIM_DT
   }
 
   get count(): number {
@@ -107,7 +86,7 @@ export class Room {
    */
   addPlayer(id: PlayerId, nickname: string, ws: WebSocket): Player {
     const spawn = this.spawns[Math.floor(Math.random() * this.spawns.length)]
-    const player = new Player(id, nickname, ws).init(this.rapier, this.world, spawn)
+    const player = new Player(id, nickname, ws, spawn)
     this.players.set(id, player)
 
     // Send room-joined to the new player.
@@ -138,10 +117,7 @@ export class Room {
    * if empty, broadcast new lobby state, etc.).
    */
   removePlayer(id: PlayerId): boolean {
-    const p = this.players.get(id)
-    if (!p) return false
-    p.destroy(this.world)
-    this.players.delete(id)
+    if (!this.players.delete(id)) return false
     console.log(`[room ${this.id}] player ${id} left, total=${this.count}`)
     this.broadcast({ t: 'playerLeft', id })
     this.onStateChange()
@@ -156,21 +132,11 @@ export class Room {
     switch (m.t) {
       case 'input':
         if (!player.alive) break
-        // Queue the most-recent input — server processes one per tick.
-        // Older queued inputs are dropped (their effect would be applied
-        // on this same tick anyway, in arrival order, but with fixed dt
-        // we only step once per tick).
-        player.pendingInput = {
-          tick: m.tick,
-          yaw: m.yaw,
-          pitch: m.pitch,
-          forward: m.forward,
-          strafe: m.strafe,
-          sprintHeld: m.sprintHeld,
-          crouchHeld: m.crouchHeld,
-          jumpEdge: m.jumpEdge,
-          crouchEdge: m.crouchEdge,
-        }
+        player.pos = m.pos
+        player.vel = m.vel
+        player.yaw = m.yaw
+        player.pitch = m.pitch
+        player.lastInputTick = m.tick
         break
       case 'ping':
         this.send(player.ws, { t: 'pong', ts: m.ts })
@@ -192,7 +158,6 @@ export class Room {
   tick() {
     this.tickCount++
     if (this.players.size === 0) return
-
     // Respawn dead players whose timer has elapsed.
     const now = Date.now()
     for (const p of this.players.values()) {
@@ -202,45 +167,6 @@ export class Room {
         this.broadcast({ t: 'respawned', id: p.id, pos: p.pos })
       }
     }
-
-    // Simulation step: for every live player, consume their pending
-    // input (if any) and run the shared stepPlayer. Dead players don't
-    // simulate — they're frozen at last position until respawn.
-    const simCtx = {
-      rapier: this.rapier,
-      world: this.world,
-      matchTime: this.matchTime,
-    }
-    for (const p of this.players.values()) {
-      if (!p.alive) continue
-      const cmd = p.pendingInput
-      if (cmd) {
-        p.lastAckedTick = cmd.tick
-        p.pendingInput = null
-        stepPlayer(p.sim, cmd, { ...simCtx, body: p.body, collider: p.collider, controller: p.controller }, SIM_DT)
-      } else {
-        // No input this tick — synthesize a stationary command so gravity
-        // still applies (player keeps falling if mid-air, etc.).
-        stepPlayer(
-          p.sim,
-          {
-            tick: p.lastAckedTick,
-            yaw: p.sim.yaw,
-            pitch: p.sim.pitch,
-            forward: 0, strafe: 0,
-            sprintHeld: false, crouchHeld: false,
-            jumpEdge: false, crouchEdge: false,
-          },
-          { ...simCtx, body: p.body, collider: p.collider, controller: p.controller },
-          SIM_DT,
-        )
-      }
-    }
-
-    // Advance Rapier — the character controller already wrote positions
-    // via setNextKinematicTranslation. world.step() commits them.
-    this.world.step()
-
     const players: PlayerSnap[] = []
     for (const p of this.players.values()) players.push(this.playerSnap(p))
     this.broadcast({ t: 'snapshot', tick: this.tickCount, players })
@@ -290,14 +216,12 @@ export class Room {
       id: p.id,
       nickname: p.nickname,
       pos: p.pos,
-      vel: p.vel,
       yaw: p.yaw,
       pitch: p.pitch,
       hp: p.hp,
       kills: p.kills,
       deaths: p.deaths,
       alive: p.alive,
-      ackedTick: p.lastAckedTick,
     }
   }
 
