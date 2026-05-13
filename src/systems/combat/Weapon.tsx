@@ -107,9 +107,15 @@ export function Weapon() {
       store.addImpact(
         [hit.point.x, hit.point.y, hit.point.z],
         [hit.normal.x, hit.normal.y, hit.normal.z],
-        hit.isBot
+        hit.isBot || hit.isRemotePlayer
       )
       AudioBus.playImpact([hit.point.x, hit.point.y, hit.point.z])
+      if (hit.isRemotePlayer && hit.remotePlayerId) {
+        // Phase 2 step 2: just visual hitmark + impact. Step 3 will
+        // forward the hit to the server with zone + damage.
+        store.registerHit()
+        // TODO Phase 2 step 3: send { t: 'hit', target, damage, zone } via NetClient
+      }
       if (hit.isBot && hit.botId != null) {
         // Resolve hit zone by Y offset from the bot's center.
         const bot = BotRegistry.get(hit.botId)
