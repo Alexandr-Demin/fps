@@ -1,11 +1,13 @@
-import { useFrame } from '@react-three/fiber'
 import { useNetStore } from '../../state/netStore'
-import { NetClient } from './NetClient'
 import { RemotePlayer } from './RemotePlayer'
 
+/**
+ * Renders all other players in the current MP room. Input dispatch lives
+ * in PlayerController now (driven by the fixed-step sim loop), so this
+ * component is purely view-layer.
+ */
 export function NetRoom() {
   const remotes = useNetStore((s) => s.remotePlayers)
-  useFrame(() => NetClient.sendInput())
   return (
     <>
       {Object.values(remotes)

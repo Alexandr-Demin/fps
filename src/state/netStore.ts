@@ -1,5 +1,18 @@
 import { create } from 'zustand'
-import type { PlayerSnap, RoomSummary } from '@shared/protocol'
+import type { PlayerSnap, RoomSummary, Vec3 } from '@shared/protocol'
+
+export interface MySnap {
+  // Server tick the snapshot was sent on.
+  tick: number
+  // Server's authoritative state for me at the tick of `ackedTick`.
+  pos: Vec3
+  vel: Vec3
+  yaw: number
+  pitch: number
+  // Last input the server consumed from me. Reconciliation uses this to
+  // pick the corresponding entry in the client's input buffer.
+  ackedTick: number
+}
 
 const NICKNAME_KEY = 'sector17.nickname'
 
@@ -34,6 +47,11 @@ interface NetState {
   rooms: RoomSummary[]
   // Current room id when in-room; null while in the lobby phase.
   currentRoomId: string | null
+  // Latest server snapshot of the local player. PlayerController reads
+  // this in the next render frame to reconcile its predicted state
+  // against server truth. null until the first snapshot arrives or
+  // after a room leave.
+  mySnap: MySnap | null
   // Round-trip latency in milliseconds, refreshed on each pong reply.
   // null when not connected (or before the first pong lands).
   rttMs: number | null
@@ -45,6 +63,7 @@ interface NetState {
   setRtt: (ms: number | null) => void
   setRooms: (rooms: RoomSummary[]) => void
   setCurrentRoomId: (id: string | null) => void
+  setMySnap: (snap: MySnap | null) => void
   upsertRemote: (snaps: PlayerSnap[]) => void
   addRemote: (snap: PlayerSnap) => void
   removeRemote: (id: string) => void
@@ -78,6 +97,7 @@ export const useNetStore = create<NetState>((set) => ({
   remotePlayers: {},
   rooms: [],
   currentRoomId: null,
+  mySnap: null,
   rttMs: null,
   setServerUrl: (url) => set({ serverUrl: url }),
   setNickname: (n) => {
@@ -93,6 +113,7 @@ export const useNetStore = create<NetState>((set) => ({
   setRtt: (ms) => set({ rttMs: ms }),
   setRooms: (rooms) => set({ rooms }),
   setCurrentRoomId: (id) => set({ currentRoomId: id }),
+  setMySnap: (snap) => set({ mySnap: snap }),
   upsertRemote: (snaps) => {
     const next: Record<string, PlayerSnap> = {}
     for (const s of snaps) next[s.id] = s

@@ -8,6 +8,7 @@
     "dev": "tsx watch src/index.ts"
   },
   "dependencies": {
+    "@dimforge/rapier3d-compat": "^0.14.0",
     "ws": "^8.18.0"
   },
   "devDependencies": {

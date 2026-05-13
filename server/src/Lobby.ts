@@ -1,4 +1,5 @@
 import { WebSocket } from 'ws'
+import type RAPIER from '@dimforge/rapier3d-compat'
 import { Room } from './Room.js'
 import {
   MAX_PLAYERS_PER_ROOM,
@@ -45,6 +46,7 @@ export class Lobby {
 
   constructor(
     private readonly mapData: MapData,
+    private readonly rapier: typeof RAPIER,
     private readonly maxPlayersPerRoom: number = MAX_PLAYERS_PER_ROOM,
   ) {}
 
@@ -185,8 +187,12 @@ export class Lobby {
   private createRoomForConnection(conn: Connection) {
     if (conn.room) return // shouldn't happen — guarded above
     const id = 'r_' + ++this.nextRoomSeq
-    const room = new Room(id, this.mapData, this.maxPlayersPerRoom, () =>
-      this.scheduleRoomListBroadcast(),
+    const room = new Room(
+      id,
+      this.mapData,
+      this.maxPlayersPerRoom,
+      this.rapier,
+      () => this.scheduleRoomListBroadcast(),
     )
     this.rooms.set(id, room)
     room.addPlayer(conn.id, conn.nickname, conn.ws)

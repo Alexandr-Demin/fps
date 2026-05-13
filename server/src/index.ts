@@ -3,6 +3,7 @@ import { stat, readFile } from 'node:fs/promises'
 import { extname, join, normalize, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { WebSocketServer } from 'ws'
+import RAPIER from '@dimforge/rapier3d-compat'
 import { Lobby } from './Lobby.js'
 import { MAX_PLAYERS_PER_ROOM, type MapData } from '../../shared/src/protocol.js'
 
@@ -117,7 +118,10 @@ async function main() {
   }
 
   const mapData = await loader()
-  const lobby = new Lobby(mapData, MAX_PLAYERS)
+  // Rapier compiles WASM on first init; do it once at startup so the
+  // first joining player doesn't pay the cost.
+  await RAPIER.init()
+  const lobby = new Lobby(mapData, RAPIER, MAX_PLAYERS)
 
   const httpServer = createServer((req, res) => {
     handleHttp(req, res).catch((e) => {
