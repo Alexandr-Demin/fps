@@ -98,7 +98,7 @@ export function Weapon() {
     tmpDir.normalize()
 
     const origin = camera.position.clone()
-    const hit = castHitscan(world, rapier, origin, tmpDir, playerHandle.body as any)
+    const hit = castHitscan(world, rapier as any, origin, tmpDir, playerHandle.body as any)
 
     // FX + audio
     const store = useGameStore.getState()
