@@ -53,7 +53,7 @@ interface GameState {
   registerHit: () => void
 
   recordShot: () => void
-  recordHit: (zone: HitZone, damage: number, killed: boolean) => void
+  recordHit: (zone: HitZone, damage: number, killed: boolean, target?: string) => void
   tickHitEvents: (dt: number) => void
   resetHitStats: () => void
 
@@ -216,10 +216,10 @@ export const useGameStore = create<GameState>()(
         hitTotals: { ...s.hitTotals, shots: s.hitTotals.shots + 1 },
       })),
 
-    recordHit: (zone, damage, killed) =>
+    recordHit: (zone, damage, killed, target) =>
       set((s) => {
         const id = s._hitSeq + 1
-        const event: HitEvent = { id, zone, damage: Math.round(damage), killed, life: 3.0 }
+        const event: HitEvent = { id, zone, damage: Math.round(damage), killed, life: 3.0, target }
         const events = [event, ...s.hitEvents].slice(0, 8)
         const totals: HitTotals = {
           ...s.hitTotals,

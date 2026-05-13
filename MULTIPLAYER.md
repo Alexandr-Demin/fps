@@ -101,12 +101,6 @@ VITE_MP_SERVER=ws://192.168.1.42:2567
 - **No lag compensation.** Hits resolved on shooter's machine against
   the latest remote position — fast strafing players will eat phantom
   shots at higher ping.
-- **Muzzle flash visual on remote players is missing.** Audio plays at
-  the shooter's position, but no visible flash above the remote model.
-  TODO Phase 3.
-- **MP `KILL` badge in hit-log is always false.** Frag confirmation is
-  server-authoritative (via the `died` event), so the per-hit kill flag
-  isn't accurate; the running KILLS counter in the scoreboard is correct.
 - **No reconnect.** WebSocket drop → main menu with an error. Click
   ARENA DUEL again to retry.
 - **No bots in MP.** Skipped on `mpPlaying`.

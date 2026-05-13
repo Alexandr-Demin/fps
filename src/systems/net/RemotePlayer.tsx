@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
-import { Group, Mesh, Vector3 } from 'three'
+import { Group, Mesh, MeshBasicMaterial, PointLight, Vector3 } from 'three'
 import { Billboard, Text } from '@react-three/drei'
 import {
   CapsuleCollider,
@@ -16,11 +16,25 @@ import {
   unregisterRemotePlayerCollider,
 } from '../combat/hitscan'
 
+// Module-level map of remote-player-id → performance.now() of the latest
+// shot. NetClient writes here when a `shotFired` event arrives; each
+// RemotePlayer reads its own entry in useFrame to drive a muzzle-flash
+// decay. Stored outside the zustand store to avoid re-renders on every
+// shot.
+const remoteShotFiredAt = new Map<string, number>()
+const MUZZLE_FLASH_DURATION = 0.07 // seconds, matches local ViewModel
+
+export function triggerRemoteMuzzleFlash(playerId: string) {
+  remoteShotFiredAt.set(playerId, performance.now())
+}
+
 export function RemotePlayer({ snap }: { snap: PlayerSnap }) {
   const visualRef = useRef<Group>(null!)
   const bodyRef = useRef<RapierRigidBody>(null!)
   const colliderHandleRef = useRef<number | null>(null)
   const hpFillRef = useRef<Mesh>(null!)
+  const flashMeshRef = useRef<Mesh>(null!)
+  const flashLightRef = useRef<PointLight>(null!)
   const showHitboxes = useGameStore((s) => s.showHitboxes)
 
   const target = useRef(new Vector3(snap.pos[0], snap.pos[1], snap.pos[2]))
@@ -80,7 +94,29 @@ export function RemotePlayer({ snap }: { snap: PlayerSnap }) {
       hpFillRef.current.scale.x = hpRatio
       hpFillRef.current.position.x = -0.35 * (1 - hpRatio)
     }
+
+    // Muzzle flash decay — driven by the timestamp NetClient writes on
+    // `shotFired`. Mirrors the local ViewModel flash duration so SP/MP
+    // visuals match.
+    const lastShot = remoteShotFiredAt.get(snap.id)
+    if (lastShot != null) {
+      const age = (performance.now() - lastShot) / 1000
+      const k = Math.max(0, 1 - age / MUZZLE_FLASH_DURATION)
+      if (flashMeshRef.current) {
+        ;(flashMeshRef.current.material as MeshBasicMaterial).opacity = k
+      }
+      if (flashLightRef.current) {
+        flashLightRef.current.intensity = k * 6
+      }
+      if (k <= 0) remoteShotFiredAt.delete(snap.id)
+    }
   })
+
+  // Clean up on unmount so a stale timestamp doesn't outlive the player.
+  useEffect(() => {
+    const id = snap.id
+    return () => { remoteShotFiredAt.delete(id) }
+  }, [snap.id])
 
   return (
     <>
@@ -104,6 +140,33 @@ export function RemotePlayer({ snap }: { snap: PlayerSnap }) {
           <capsuleGeometry args={[PLAYER.RADIUS, PLAYER.HEIGHT - PLAYER.RADIUS * 2, 6, 12]} />
           <meshStandardMaterial color="#3a8aff" roughness={0.6} metalness={0.2} />
         </mesh>
+
+        {/* Muzzle flash — opacity/intensity driven by useFrame above. Sits
+            in front of the capsule at hand height; the parent group's
+            rotation.y matches the player's yaw so the flash points where
+            they're aiming. */}
+        <mesh
+          ref={flashMeshRef}
+          position={[0.18, 0.05, -0.45]}
+          renderOrder={1001}
+        >
+          <planeGeometry args={[0.28, 0.28]} />
+          <meshBasicMaterial
+            color="#ffb070"
+            transparent
+            opacity={0}
+            depthWrite={false}
+            toneMapped={false}
+          />
+        </mesh>
+        <pointLight
+          ref={flashLightRef}
+          position={[0.18, 0.05, -0.45]}
+          intensity={0}
+          distance={4}
+          color="#ffaa66"
+          decay={2}
+        />
 
         {/* Debug hitbox wireframes — toggled from settings dialog. Mirrors
             the Bot.tsx debug overlay (same HITBOX table, same Y convention

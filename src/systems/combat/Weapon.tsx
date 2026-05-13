@@ -145,14 +145,13 @@ export function Weapon() {
         const damage = WEAPON.DAMAGE * multiplier
         NetClient.sendHit(hit.remotePlayerId, damage, zone)
         store.registerHit()
-        // Feed the hit into the local debug log. `killed` is always false
-        // here — the actual frag confirmation comes from the server via
-        // `died` (handled in NetClient) since the shooter can't know if a
-        // peer also dealt damage in parallel.
+        // Feed the hit into the local debug log. `killed` starts false —
+        // the server's `died` event (handled in NetClient) retroactively
+        // flips it via markKilledForTarget once the kill is confirmed.
         const zoneUpper = (
           { head: 'HEAD', torso: 'TORSO', legs: 'LEGS' } as const
         )[zone]
-        store.recordHit(zoneUpper, damage, false)
+        store.recordHit(zoneUpper, damage, false, hit.remotePlayerId)
       }
       if (hit.isBot && hit.botId != null) {
         // Resolve hit zone by Y offset from the bot's center.

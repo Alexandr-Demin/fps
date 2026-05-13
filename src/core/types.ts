@@ -36,6 +36,9 @@ export interface HitEvent {
   damage: number
   killed: boolean
   life: number   // seconds remaining for the log entry
+  // MP only: remote-player id of the victim, so a delayed server-side
+  // `died` event can retroactively flip `killed` on the right entry.
+  target?: string
 }
 
 export interface HitTotals {

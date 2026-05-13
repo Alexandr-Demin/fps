@@ -4,6 +4,7 @@ import { Input } from '../input/input'
 import { playerHandle } from '../movement/PlayerController'
 import { AudioBus } from '../audio/AudioSystem'
 import { PLAYER, WEAPON } from '../../core/constants'
+import { triggerRemoteMuzzleFlash } from './RemotePlayer'
 import {
   PROTOCOL_VERSION,
   MP_MAX_HP,
@@ -219,9 +220,26 @@ class NetClientImpl {
             return { remotePlayers: next }
           })
         }
-        // Whoever killed (could be us, remotely): if we did, score it.
+        // Whoever killed (could be us, remotely): if we did, score it and
+        // flip the KILL badge on the most recent hit-log entry for this
+        // target (recorded as killed=false at fire time). One setState
+        // so kills bump + log update + accuracy-stats kill bump land as a
+        // single batched update.
         if (msg.attacker === this.myId && msg.target !== this.myId) {
-          useGameStore.setState((s) => ({ kills: s.kills + 1 }))
+          const targetId = msg.target
+          useGameStore.setState((s) => {
+            const idx = s.hitEvents.findIndex(
+              (e) => e.target === targetId && !e.killed,
+            )
+            if (idx < 0) return { kills: s.kills + 1 }
+            const nextEvents = s.hitEvents.slice()
+            nextEvents[idx] = { ...nextEvents[idx], killed: true }
+            return {
+              kills: s.kills + 1,
+              hitEvents: nextEvents,
+              hitTotals: { ...s.hitTotals, kills: s.hitTotals.kills + 1 },
+            }
+          })
           AudioBus.playKillFeedback()
         }
         break
@@ -266,9 +284,11 @@ class NetClientImpl {
       }
       case 'shotFired': {
         // Other player fired — play positional pistol audio at their
-        // origin. Visual muzzle-flash on the remote model is a TODO.
+        // origin and flash their model's muzzle. RemotePlayer's useFrame
+        // reads the stamped timestamp and decays the flash over ~70ms.
         if (msg.shooter === this.myId) break
         AudioBus.playPistol(msg.origin)
+        triggerRemoteMuzzleFlash(msg.shooter)
         break
       }
       case 'pong': {

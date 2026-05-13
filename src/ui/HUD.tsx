@@ -96,7 +96,11 @@ export function HUD() {
       </div>
 
       {debugVisible && <FpsCounter />}
-      {showHitboxes && <HitStats />}
+      {/* Hit log is useful gameplay feedback (damage dealt, KILL badge) —
+          shown during any in-match phase regardless of the hitbox-wireframes
+          debug toggle. */}
+      {(phase === 'playing' || phase === 'mpPlaying' ||
+        phase === 'mpPaused' || phase === 'mpDead') && <HitStats />}
 
       {showHitMarker && (
         <div className="hit-marker">
