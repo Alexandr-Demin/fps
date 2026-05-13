@@ -2,6 +2,7 @@ import { WebSocket } from 'ws'
 import { Player } from './Player.js'
 import {
   PROTOCOL_VERSION,
+  MP_RESPAWN_MS,
   type C2S,
   type S2C,
   type PlayerSnap,
@@ -9,6 +10,11 @@ import {
   type MapData,
   type PlayerId,
 } from '../../shared/src/protocol.js'
+
+// Defensive cap on a single client-reported hit. Real anti-cheat will come
+// in Phase 3; this is just a sanity bound so a typo / glitched packet
+// can't reset HP to deeply negative in one shot.
+const MAX_DAMAGE_PER_HIT = 200
 
 export class Room {
   private players = new Map<PlayerId, Player>()
@@ -95,6 +101,7 @@ export class Room {
         try { m = JSON.parse(data.toString()) as C2S } catch { return }
         switch (m.t) {
           case 'input':
+            if (!player.alive) break
             player.pos = m.pos
             player.vel = m.vel
             player.yaw = m.yaw
@@ -103,6 +110,9 @@ export class Room {
             break
           case 'ping':
             this.send(ws, { t: 'pong', ts: m.ts })
+            break
+          case 'hit':
+            this.onHit(player, m.target, m.damage, m.zone)
             break
           // ignore everything else
         }
@@ -119,9 +129,53 @@ export class Room {
   tick() {
     this.tickCount++
     if (this.players.size === 0) return
+    // Respawn dead players whose timer has elapsed
+    const now = Date.now()
+    for (const p of this.players.values()) {
+      if (!p.alive && now >= p.deadUntil) {
+        const spawn = this.spawns[Math.floor(Math.random() * this.spawns.length)]
+        p.respawn(spawn)
+        this.broadcast({ t: 'respawned', id: p.id, pos: p.pos })
+      }
+    }
     const players: PlayerSnap[] = []
     for (const p of this.players.values()) players.push(this.playerSnap(p))
     this.broadcast({ t: 'snapshot', tick: this.tickCount, players })
+  }
+
+  private onHit(attacker: Player, targetId: PlayerId, damage: number, zone: 'head' | 'torso' | 'legs') {
+    if (!attacker.alive) return
+    const target = this.players.get(targetId)
+    if (!target || !target.alive) return
+    if (target === attacker) return  // self-damage disabled (splash etc not implemented)
+
+    // Sanitize damage: clamp to [0, MAX_DAMAGE_PER_HIT]
+    const amount = Math.max(0, Math.min(MAX_DAMAGE_PER_HIT, Math.floor(damage)))
+    if (amount === 0) return
+
+    target.hp -= amount
+    if (target.hp <= 0) {
+      target.hp = 0
+      target.alive = false
+      target.deadUntil = Date.now() + MP_RESPAWN_MS
+      attacker.kills++
+      target.deaths++
+      this.broadcast({
+        t: 'died',
+        target: target.id,
+        attacker: attacker.id,
+        respawnAt: target.deadUntil,
+      })
+    } else {
+      this.broadcast({
+        t: 'damaged',
+        target: target.id,
+        attacker: attacker.id,
+        amount,
+        hp: target.hp,
+        zone,
+      })
+    }
   }
 
   private playerSnap(p: Player): PlayerSnap {
@@ -131,6 +185,10 @@ export class Room {
       pos: p.pos,
       yaw: p.yaw,
       pitch: p.pitch,
+      hp: p.hp,
+      kills: p.kills,
+      deaths: p.deaths,
+      alive: p.alive,
     }
   }
 
