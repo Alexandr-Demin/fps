@@ -11,6 +11,7 @@ import { useEditorStore } from './state/editorStore'
 import { CAMERA } from './core/constants'
 import { AudioBus } from './systems/audio/AudioSystem'
 import { EditorUI } from './editor/EditorUI'
+import { MultiplayerConnect } from './ui/MultiplayerConnect'
 
 export function App() {
   const canvasContainerRef = useRef<HTMLDivElement>(null)
@@ -23,7 +24,8 @@ export function App() {
     if (!el) return
     Input.attach(el)
     const onClick = () => {
-      if (useGameStore.getState().phase === 'playing') Input.requestLock()
+      const ph = useGameStore.getState().phase
+      if (ph === 'playing' || ph === 'mpPlaying') Input.requestLock()
     }
     el.addEventListener('click', onClick)
     return () => {
@@ -120,9 +122,10 @@ export function App() {
         </Suspense>
       </Canvas>
 
-      {phase === 'playing' && <HUD />}
+      {(phase === 'playing' || phase === 'mpPlaying') && <HUD />}
       <MainMenu />
       <LevelSelect />
+      <MultiplayerConnect />
       <DeathScreen />
       <SettingsDialog />
       {phase === 'editor' && <EditorUI />}

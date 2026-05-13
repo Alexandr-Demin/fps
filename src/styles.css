@@ -1085,3 +1085,35 @@ canvas { display: block; outline: none; }
   from { opacity: 0; }
   to   { opacity: 1; }
 }
+
+.mp-input {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  margin-top: 4px;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: #e6edf3;
+  font: inherit;
+  font-size: 14px;
+  letter-spacing: 0.05em;
+  outline: none;
+  transition: border-color 0.12s ease;
+}
+.mp-input:focus {
+  border-color: #3a8aff;
+}
+.mp-input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.mp-error {
+  margin-top: 10px;
+  padding: 6px 10px;
+  background: rgba(255, 64, 64, 0.12);
+  border: 1px solid rgba(255, 64, 64, 0.4);
+  color: #ff8080;
+  font-size: 12px;
+  letter-spacing: 0.05em;
+}

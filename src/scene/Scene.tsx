@@ -12,6 +12,7 @@ import { BotSwarm } from '../systems/ai/BotSwarm'
 import { MapLoader } from './map/MapLoader'
 import { useGameStore } from '../state/gameStore'
 import { EditorScene } from '../editor/EditorScene'
+import { NetRoom } from '../systems/net/NetRoom'
 
 function FogSetter() {
   const { scene } = useThree()
@@ -53,8 +54,9 @@ export function Scene() {
         <Physics gravity={[0, -28, 0]} timeStep={1 / 60}>
           <MapLoader map={map} />
           <PlayerController />
-          <BotSwarm />
+          {phase === 'playing' && <BotSwarm />}
           <Weapon />
+          {phase === 'mpPlaying' && <NetRoom />}
         </Physics>
       )}
 
