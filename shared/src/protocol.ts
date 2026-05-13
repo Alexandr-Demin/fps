@@ -2,7 +2,7 @@ import type { MapData } from '../../src/core/mapTypes'
 
 // Bump on any breaking protocol change. Clients with a different version
 // are rejected at hello-time.
-export const PROTOCOL_VERSION = 2
+export const PROTOCOL_VERSION = 3
 export type Vec3 = [number, number, number]
 export type PlayerId = string
 export type HitZone = 'head' | 'torso' | 'legs'
@@ -30,6 +30,9 @@ export type C2S =
   // computed damage; the server trusts (acceptable for the friends-only
   // tier — will tighten in Phase 3).
   | { t: 'hit'; target: PlayerId; damage: number; zone: HitZone }
+  // Fire-event broadcast — server fans out to other clients so they can
+  // play positional gunfire audio (visuals come later).
+  | { t: 'shoot'; origin: Vec3; dir: Vec3 }
 
 export type S2C =
   | { t: 'welcome'; you: PlayerId; map: MapData; tick: number; players: PlayerSnap[] }
@@ -41,5 +44,6 @@ export type S2C =
   | { t: 'damaged'; target: PlayerId; attacker: PlayerId; amount: number; hp: number; zone: HitZone }
   | { t: 'died'; target: PlayerId; attacker: PlayerId; respawnAt: number }
   | { t: 'respawned'; id: PlayerId; pos: Vec3 }
+  | { t: 'shotFired'; shooter: PlayerId; origin: Vec3; dir: Vec3 }
 
 export type { MapData }

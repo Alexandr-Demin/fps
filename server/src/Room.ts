@@ -114,6 +114,16 @@ export class Room {
           case 'hit':
             this.onHit(player, m.target, m.damage, m.zone)
             break
+          case 'shoot':
+            // Pure broadcast — Phase 2 doesn't run any server-side hit
+            // detection from this. Used only for positional audio /
+            // visual feedback on other clients.
+            if (!player.alive) break
+            this.broadcast(
+              { t: 'shotFired', shooter: player.id, origin: m.origin, dir: m.dir },
+              ws,
+            )
+            break
           // ignore everything else
         }
       })

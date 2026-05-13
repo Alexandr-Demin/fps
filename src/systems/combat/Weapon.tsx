@@ -106,6 +106,15 @@ export function Weapon() {
     store.recordShot()
     AudioBus.playPistol([origin.x, origin.y, origin.z])
 
+    // In MP, broadcast the shot so other clients can play positional
+    // gunfire audio. Cosmetic-only; server doesn't run hit detection here.
+    if (phase === 'mpPlaying') {
+      NetClient.sendShot(
+        [origin.x, origin.y, origin.z],
+        [tmpDir.x, tmpDir.y, tmpDir.z],
+      )
+    }
+
     if (hit) {
       store.addImpact(
         [hit.point.x, hit.point.y, hit.point.z],

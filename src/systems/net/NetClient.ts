@@ -107,6 +107,18 @@ class NetClientImpl {
     this.ws!.send(JSON.stringify(msg))
   }
 
+  /**
+   * Tell the server we just fired so it can broadcast a `shotFired` event
+   * to other clients for positional gunfire audio. Server doesn't
+   * validate or simulate this — pure cosmetic relay.
+   */
+  sendShot(origin: [number, number, number], dir: [number, number, number]) {
+    if (!this.isConnected()) return
+    if (useGameStore.getState().phase !== 'mpPlaying') return
+    const msg: C2S = { t: 'shoot', origin, dir }
+    this.ws!.send(JSON.stringify(msg))
+  }
+
   private onMessage(raw: any) {
     let msg: S2C
     try { msg = JSON.parse(raw) as S2C } catch { return }
@@ -227,6 +239,13 @@ class NetClientImpl {
             return { remotePlayers: next }
           })
         }
+        break
+      }
+      case 'shotFired': {
+        // Other player fired — play positional pistol audio at their
+        // origin. Visual muzzle-flash on the remote model is a TODO.
+        if (msg.shooter === this.myId) break
+        AudioBus.playPistol(msg.origin)
         break
       }
       case 'pong':

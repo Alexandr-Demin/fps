@@ -12,6 +12,7 @@ import { CAMERA } from './core/constants'
 import { AudioBus } from './systems/audio/AudioSystem'
 import { EditorUI } from './editor/EditorUI'
 import { MultiplayerConnect } from './ui/MultiplayerConnect'
+import { MpScoreboard } from './ui/MpScoreboard'
 
 export function App() {
   const canvasContainerRef = useRef<HTMLDivElement>(null)
@@ -159,6 +160,7 @@ export function App() {
       </Canvas>
 
       {(phase === 'playing' || phase === 'mpPlaying') && <HUD />}
+      <MpScoreboard />
       <MainMenu />
       <LevelSelect />
       <MultiplayerConnect />
