@@ -50,9 +50,9 @@ export function MultiplayerConnect() {
   return (
     <div className="overlay interactive">
       <div className="menu">
-        <div className="sub">ARENA AIM</div>
+        <div className="sub">ARENA DUEL</div>
         <h1>CONNECT</h1>
-        <div className="sub">Network aim-training arena</div>
+        <div className="sub">Network 1v1 duel arena</div>
 
         <label className="hud-label" style={{ marginTop: 16 }}>
           NICKNAME

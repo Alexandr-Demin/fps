@@ -1,8 +1,12 @@
-# Sector-17 Multiplayer · Phase 1
+# Sector-17 Multiplayer · Phase 2
 
-Phase 1 ships **movement-only** networking: positions and rotations sync
-between players over a single global FFA room. No shooting/HP/respawn over
-the wire yet — those stay solo-only for now.
+Phase 2 ships networked combat: positions, shooting, HP/damage, kills,
+deaths and respawns all sync across clients. One global FFA room per
+server process, soft-authoritative model (server trusts client-reported
+position + client-reported hits — fine for friends-only tier).
+
+Phase 1 (movement-only) is captured in commit history if you need that
+slice.
 
 ## Quickstart (localhost)
 
@@ -14,12 +18,17 @@ npm run dev            # terminal 2 — Vite on http://localhost:5173
 
 Open `http://localhost:5173` in two browser tabs (or windows). In each:
 
-1. Click **DEATHMATCH**
+1. Click **ARENA DUEL** (DEATHMATCH is a placeholder for the future)
 2. Pick a nickname (saved in `localStorage`)
 3. Leave `Server URL` as `ws://localhost:2567`
-4. **CONNECT** → mouse is captured, you see the other player as a blue capsule
+4. **CONNECT** → mouse is captured, you see the other player as a blue
+   capsule with nickname + HP bar
+5. Shoot them. 3 body shots = kill. Headshots (top of capsule) = 2 to kill.
 
-Press **ESC** to release the cursor; refresh the page to leave the match.
+Controls in match:
+- **ESC** opens the MP pause menu (RESUME / SETTINGS / MAIN MENU).
+- **ALT** releases the cursor without pausing — useful for tab switching.
+- Click the canvas to re-capture the cursor.
 
 ## LAN (host + friends on same Wi-Fi)
 
@@ -55,12 +64,15 @@ No port-forwarding, no DDNS, no TLS cert.
 | `PORT`       | `2567`     | WebSocket port |
 | `TICK_RATE`  | `30`       | Snapshots per second |
 | `MAX_PLAYERS`| `14`       | Hard cap; 15th connection is rejected with `room full` |
-| `MAP_ID`     | `sector17` | One of: `sector17`, `tactical_arena` |
+| `MAP_ID`     | `sector17` | One of: `sector17`, `tactical_arena`, `aim_duel` |
+
+`aim_duel` is the recommended map for 2-player matches — small symmetric
+arena (24×30m), 4 corner spawns, two central pillars, fast TTK.
 
 Windows PowerShell example:
 
 ```
-$env:MAP_ID = "tactical_arena"; npm run server
+$env:MAP_ID = "aim_duel"; npm run server
 ```
 
 The server does **not** load a `.env` file automatically — set vars in the
@@ -78,18 +90,26 @@ Put in `.env.local`:
 VITE_MP_SERVER=ws://192.168.1.42:2567
 ```
 
-## Known limitations (Phase 1)
+## Known limitations (Phase 2)
 
-- **Movement only.** Shooting, HP, deaths, kill counters don't sync. They still
-  work locally but are invisible to other players.
-- **No prediction/reconciliation.** Your local player is fully authoritative
-  for yourself; you simply see other players' raw server positions, lerped.
-- **No pause in MP.** ESC only releases the pointer lock; the match continues.
-- **No reconnect.** If the WebSocket drops, you go back to the main menu with
-  an error toast. Click DEATHMATCH again to retry.
-- **No bots in MP.** They're skipped on `mpPlaying`.
-- **`ws://` only.** Open the client over `http://` — `https://` pages block
-  insecure WebSockets ("mixed content").
+- **Soft-authoritative.** Server trusts client-reported positions (no
+  validation) and client-reported hits (damage clamped to ≤200 as a
+  sanity bound). Cheating is trivial — fine for friends-only matches.
+- **No prediction/reconciliation.** Local player is authoritative for
+  itself; remote players are interpolated from raw server snapshots
+  (~30Hz, 30–100ms behind).
+- **No lag compensation.** Hits resolved on shooter's machine against
+  the latest remote position — fast strafing players will eat phantom
+  shots at higher ping.
+- **Muzzle flash visual on remote players is missing.** Audio plays at
+  the shooter's position, but no visible flash above the remote model.
+  TODO Phase 3.
+- **MP `KILL` badge in hit-log is always false.** Frag confirmation is
+  server-authoritative (via the `died` event), so the per-hit kill flag
+  isn't accurate; the running KILLS counter in the scoreboard is correct.
+- **No reconnect.** WebSocket drop → main menu with an error. Click
+  ARENA DUEL again to retry.
+- **No bots in MP.** Skipped on `mpPlaying`.
+- **`ws://` only.** Open the client over `http://` — `https://` pages
+  block insecure WebSockets ("mixed content").
 - **One global FFA room** per server process. No lobbies, no team play.
-- **Server has no Rapier.** It trusts client-reported positions. Cheating is
-  trivial; this is intentional for Phase 1.

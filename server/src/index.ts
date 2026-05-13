@@ -10,6 +10,7 @@ const MAP_ID = process.env.MAP_ID ?? 'sector17'
 const MAP_LOADERS: Record<string, () => Promise<MapData>> = {
   sector17:       async () => (await import('../../src/core/maps/sector17')).SECTOR_17,
   tactical_arena: async () => (await import('../../src/core/maps/tactical_arena')).TACTICAL_ARENA,
+  aim_duel:       async () => (await import('../../src/core/maps/aim_duel')).AIM_DUEL,
 }
 
 async function main() {

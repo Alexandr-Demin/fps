@@ -2,7 +2,7 @@ import { useGameStore } from '../state/gameStore'
 import { useNetStore } from '../state/netStore'
 
 /**
- * Live scoreboard for ARENA AIM matches. Aggregates the local player's
+ * Live scoreboard for ARENA DUEL matches. Aggregates the local player's
  * stats from gameStore (kills/deaths/nickname) with remote players from
  * netStore.remotePlayers, then sorts by kills desc / deaths asc.
  *

@@ -65,7 +65,7 @@ export function MainMenu() {
               DEATHMATCH
               <span className="menu-badge">SOON</span>
             </button>
-            <button onClick={() => setPhase('mpConnect')}>ARENA AIM</button>
+            <button onClick={() => setPhase('mpConnect')}>ARENA DUEL</button>
             <button onClick={enterEditor}>EDITOR</button>
             <button onClick={openSettings}>SETTINGS</button>
           </div>
@@ -170,7 +170,7 @@ function LevelCard({
 }
 
 /**
- * Pause overlay shown during ARENA AIM matches when the player releases the
+ * Pause overlay shown during ARENA DUEL matches when the player releases the
  * cursor (ESC). Mirrors the SP pause menu — RESUME / SETTINGS / MAIN MENU —
  * but with network-aware MAIN MENU that cleanly disconnects before changing
  * phase, so NetClient.handleClose doesn't flag the manual leave as an error.
@@ -199,7 +199,7 @@ export function MpPauseMenu() {
   return (
     <div className="overlay interactive">
       <div className="menu">
-        <div className="sub">ARENA AIM</div>
+        <div className="sub">ARENA DUEL</div>
         <h1>PAUSED</h1>
 
         <div className="menu-buttons">
