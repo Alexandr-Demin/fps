@@ -9,7 +9,8 @@ import {
 } from '@react-three/rapier'
 import type { PlayerSnap } from '@shared/protocol'
 import { MP_MAX_HP } from '@shared/protocol'
-import { PLAYER } from '../../core/constants'
+import { HITBOX, PLAYER } from '../../core/constants'
+import { useGameStore } from '../../state/gameStore'
 import {
   registerRemotePlayerCollider,
   unregisterRemotePlayerCollider,
@@ -20,6 +21,7 @@ export function RemotePlayer({ snap }: { snap: PlayerSnap }) {
   const bodyRef = useRef<RapierRigidBody>(null!)
   const colliderHandleRef = useRef<number | null>(null)
   const hpFillRef = useRef<Mesh>(null!)
+  const showHitboxes = useGameStore((s) => s.showHitboxes)
 
   const target = useRef(new Vector3(snap.pos[0], snap.pos[1], snap.pos[2]))
   const yawTarget = useRef(snap.yaw)
@@ -102,6 +104,27 @@ export function RemotePlayer({ snap }: { snap: PlayerSnap }) {
           <capsuleGeometry args={[PLAYER.RADIUS, PLAYER.HEIGHT - PLAYER.RADIUS * 2, 6, 12]} />
           <meshStandardMaterial color="#3a8aff" roughness={0.6} metalness={0.2} />
         </mesh>
+
+        {/* Debug hitbox wireframes — toggled from settings dialog. Mirrors
+            the Bot.tsx debug overlay (same HITBOX table, same Y convention
+            relative to body center). */}
+        {showHitboxes && (
+          <group>
+            {[HITBOX.HEAD, HITBOX.TORSO, HITBOX.LEGS].map((zone, i) => (
+              <mesh key={i} position={zone.center as unknown as [number, number, number]}>
+                <boxGeometry args={zone.size as unknown as [number, number, number]} />
+                <meshBasicMaterial
+                  color={zone.color}
+                  wireframe
+                  transparent
+                  opacity={0.75}
+                  depthTest={false}
+                  toneMapped={false}
+                />
+              </mesh>
+            ))}
+          </group>
+        )}
 
         {/* Nickname */}
         <Billboard position={[0, PLAYER.HEIGHT * 0.5 + 0.25, 0]}>

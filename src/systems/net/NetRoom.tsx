@@ -8,9 +8,11 @@ export function NetRoom() {
   useFrame(() => NetClient.sendInput())
   return (
     <>
-      {Object.values(remotes).map((snap) => (
-        <RemotePlayer key={snap.id} snap={snap} />
-      ))}
+      {Object.values(remotes)
+        .filter((snap) => snap.alive)
+        .map((snap) => (
+          <RemotePlayer key={snap.id} snap={snap} />
+        ))}
     </>
   )
 }

@@ -56,7 +56,7 @@ export function Scene() {
           <PlayerController />
           {phase === 'playing' && <BotSwarm />}
           <Weapon />
-          {(phase === 'mpPlaying' || phase === 'mpPaused') && <NetRoom />}
+          {(phase === 'mpPlaying' || phase === 'mpPaused' || phase === 'mpDead') && <NetRoom />}
         </Physics>
       )}
 

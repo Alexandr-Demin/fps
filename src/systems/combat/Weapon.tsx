@@ -10,6 +10,9 @@ import { AudioBus } from '../audio/AudioSystem'
 import { ViewModel, type ViewModelHandle } from './ViewModel'
 import { BotRegistry } from '../ai/BotRegistry'
 import { playerHandle } from '../movement/PlayerController'
+import { NetClient } from '../net/NetClient'
+import { useNetStore } from '../../state/netStore'
+import type { HitZone } from '@shared/protocol'
 
 const tmpDir = new Vector3()
 const tmpQuat = new Quaternion()
@@ -111,10 +114,36 @@ export function Weapon() {
       )
       AudioBus.playImpact([hit.point.x, hit.point.y, hit.point.z])
       if (hit.isRemotePlayer && hit.remotePlayerId) {
-        // Phase 2 step 2: just visual hitmark + impact. Step 3 will
-        // forward the hit to the server with zone + damage.
+        // Resolve the hit zone by comparing the impact-point's Y to the
+        // remote player's body center (mirrors the bot HITBOX logic so
+        // damage values are consistent across SP and MP).
+        const remote = useNetStore.getState().remotePlayers[hit.remotePlayerId]
+        let multiplier = HITBOX.TORSO.multiplier
+        let zone: HitZone = 'torso'
+        if (remote) {
+          const dy = hit.point.y - remote.pos[1]
+          if (dy >= HITBOX.HEAD.yMin) {
+            multiplier = HITBOX.HEAD.multiplier
+            zone = 'head'
+          } else if (dy >= HITBOX.TORSO.yMin) {
+            multiplier = HITBOX.TORSO.multiplier
+            zone = 'torso'
+          } else {
+            multiplier = HITBOX.LEGS.multiplier
+            zone = 'legs'
+          }
+        }
+        const damage = WEAPON.DAMAGE * multiplier
+        NetClient.sendHit(hit.remotePlayerId, damage, zone)
         store.registerHit()
-        // TODO Phase 2 step 3: send { t: 'hit', target, damage, zone } via NetClient
+        // Feed the hit into the local debug log. `killed` is always false
+        // here — the actual frag confirmation comes from the server via
+        // `died` (handled in NetClient) since the shooter can't know if a
+        // peer also dealt damage in parallel.
+        const zoneUpper = (
+          { head: 'HEAD', torso: 'TORSO', legs: 'LEGS' } as const
+        )[zone]
+        store.recordHit(zoneUpper, damage, false)
       }
       if (hit.isBot && hit.botId != null) {
         // Resolve hit zone by Y offset from the bot's center.

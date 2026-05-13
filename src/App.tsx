@@ -36,9 +36,24 @@ export function App() {
 
   // ESC → pause (when playing). The browser fires its own pointerlock-loss
   // on ESC; we listen for that to switch into paused state.
+  // Track whether the upcoming pointer-lock release was caused by an Alt-tap
+  // (intentional cursor release for tab switching). The pointerlockchange
+  // handler reads this and skips the auto-pause when true.
+  const altReleasingRef = useRef(false)
+
   useEffect(() => {
     const onPlc = () => {
-      if (document.pointerLockElement) return
+      if (document.pointerLockElement) {
+        // Re-acquired — clear any stale flag from a previous Alt-tap.
+        altReleasingRef.current = false
+        return
+      }
+      if (altReleasingRef.current) {
+        // Alt-initiated release: leave the cursor free but stay in the
+        // current phase. The user clicks the canvas to re-capture.
+        altReleasingRef.current = false
+        return
+      }
       const ph = useGameStore.getState().phase
       if (ph === 'playing') {
         pauseMatch()
@@ -50,6 +65,23 @@ export function App() {
     document.addEventListener('pointerlockchange', onPlc)
     return () => document.removeEventListener('pointerlockchange', onPlc)
   }, [pauseMatch])
+
+  // Alt tap → release cursor without entering pause. Allows quick alt-tab /
+  // switch between browser tabs without exiting the match.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.code !== 'AltLeft' && e.code !== 'AltRight') return
+      if (e.repeat) return
+      const ph = useGameStore.getState().phase
+      if (ph !== 'playing' && ph !== 'mpPlaying') return
+      altReleasingRef.current = true
+      Input.exitLock()
+      // Prevent the browser's default Alt behavior (focus menu bar on Windows)
+      e.preventDefault()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
 
   // M key toggles mute (works both in gameplay and menus)
   useEffect(() => {

@@ -117,7 +117,11 @@ export function PlayerController() {
     prevPhaseRef.current = phase
 
     const enteredSp = phase === 'playing' && prev !== 'paused'
-    const enteredMp = phase === 'mpPlaying' && prev !== 'mpPaused'
+    // For MP, server is authoritative on respawn position (via `respawned`
+    // event handled in NetClient). So skip the local random spawn when
+    // entering from mpPaused (resume) or mpDead (respawn).
+    const enteredMp =
+      phase === 'mpPlaying' && prev !== 'mpPaused' && prev !== 'mpDead'
     if (!enteredSp && !enteredMp) return
 
     const map = useGameStore.getState().currentMap

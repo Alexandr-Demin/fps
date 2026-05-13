@@ -222,24 +222,32 @@ export function DeathScreen() {
   const respawnPlayer = useGameStore((s) => s.respawnPlayer)
   const [remaining, setRemaining] = useState(0)
 
+  const isDead = phase === 'dead' || phase === 'mpDead'
+  const isMp = phase === 'mpDead'
+
   useEffect(() => {
-    if (phase !== 'dead') return
+    if (!isDead) return
     let raf = 0
     const tick = () => {
       const left = Math.max(0, respawnAt - performance.now() / 1000)
       setRemaining(left)
       if (left <= 0) {
-        respawnPlayer()
-        Input.requestLock()
+        if (!isMp) {
+          // SP: respawn is local. MP: wait for server's `respawned` event,
+          // which NetClient routes back to mpPlaying with the authoritative
+          // spawn position. Don't fight the server clock here.
+          respawnPlayer()
+          Input.requestLock()
+        }
       } else {
         raf = requestAnimationFrame(tick)
       }
     }
     raf = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(raf)
-  }, [phase, respawnAt, respawnPlayer])
+  }, [isDead, isMp, respawnAt, respawnPlayer])
 
-  if (phase !== 'dead') return null
+  if (!isDead) return null
   return (
     <div className="overlay">
       <div className="death">

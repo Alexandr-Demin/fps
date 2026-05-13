@@ -2,7 +2,16 @@ import { useGameStore } from '../../state/gameStore'
 import { useNetStore } from '../../state/netStore'
 import { Input } from '../input/input'
 import { playerHandle } from '../movement/PlayerController'
-import { PROTOCOL_VERSION, type C2S, type S2C } from '@shared/protocol'
+import { AudioBus } from '../audio/AudioSystem'
+import { PLAYER, WEAPON } from '../../core/constants'
+import {
+  PROTOCOL_VERSION,
+  MP_MAX_HP,
+  type C2S,
+  type S2C,
+  type HitZone,
+  type PlayerId,
+} from '@shared/protocol'
 
 class NetClientImpl {
   private ws: WebSocket | null = null
@@ -67,9 +76,9 @@ class NetClientImpl {
   sendInput() {
     if (!this.isConnected()) return
     if (!playerHandle.body) return
-    // While paused (mpPaused), NetRoom is still mounted so remote players
-    // keep interpolating — but we stop sending our own input so the server
-    // sees us as stationary.
+    // While paused (mpPaused) / dead (mpDead), NetRoom is still mounted so
+    // remote players keep interpolating — but we stop sending our own input
+    // so the server sees us as stationary.
     if (useGameStore.getState().phase !== 'mpPlaying') return
     const now = performance.now()
     if (now - this.lastSentAt < 33) return
@@ -82,6 +91,19 @@ class NetClientImpl {
       yaw: playerHandle.yaw,
       pitch: playerHandle.pitch,
     }
+    this.ws!.send(JSON.stringify(msg))
+  }
+
+  /**
+   * Forward a client-resolved hit to the server. The shooter's machine ran
+   * hitscan against the remote player's sensor collider and computed the
+   * damage value + zone; we just relay. Server validates target/attacker
+   * are alive and clamps the damage value defensively.
+   */
+  sendHit(target: PlayerId, damage: number, zone: HitZone) {
+    if (!this.isConnected()) return
+    if (useGameStore.getState().phase !== 'mpPlaying') return
+    const msg: C2S = { t: 'hit', target, damage, zone }
     this.ws!.send(JSON.stringify(msg))
   }
 
@@ -129,6 +151,84 @@ class NetClientImpl {
         useNetStore.getState().removeRemote(msg.id)
         break
       }
+      case 'damaged': {
+        // Only react to damage dealt to us; remote players' HP updates
+        // ride along on the next snapshot.
+        if (msg.target !== this.myId) break
+        useGameStore.setState({
+          hp: msg.hp,
+          lastDamageAt: performance.now() / 1000,
+        })
+        AudioBus.playHurt()
+        break
+      }
+      case 'died': {
+        if (msg.target === this.myId) {
+          // Local death — switch to mpDead, schedule respawn via
+          // server-given timestamp converted to performance.now() time-base.
+          const remaining = Math.max(0, (msg.respawnAt - Date.now()) / 1000)
+          useGameStore.setState((s) => ({
+            phase: 'mpDead',
+            hp: 0,
+            respawnAt: performance.now() / 1000 + remaining,
+            deaths: s.deaths + 1,
+          }))
+        } else {
+          // Remote died — hide their capsule immediately rather than
+          // waiting for the next snapshot to land alive=false (otherwise
+          // the body lingers at the kill spot for up to ~33ms).
+          useNetStore.setState((s) => {
+            const next = { ...s.remotePlayers }
+            const r = next[msg.target]
+            if (r) next[msg.target] = { ...r, alive: false, hp: 0 }
+            return { remotePlayers: next }
+          })
+        }
+        // Whoever killed (could be us, remotely): if we did, score it.
+        if (msg.attacker === this.myId && msg.target !== this.myId) {
+          useGameStore.setState((s) => ({ kills: s.kills + 1 }))
+          AudioBus.playKillFeedback()
+        }
+        break
+      }
+      case 'respawned': {
+        if (msg.id === this.myId) {
+          // Teleport BEFORE flipping phase so PlayerController's useFrame
+          // doesn't run a tick from the dead-position before being told
+          // about the new one.
+          if (playerHandle.body) {
+            playerHandle.body.setNextKinematicTranslation({
+              x: msg.pos[0], y: msg.pos[1], z: msg.pos[2],
+            })
+            playerHandle.body.setTranslation(
+              { x: msg.pos[0], y: msg.pos[1], z: msg.pos[2] }, true
+            )
+          }
+          playerHandle.pos.set(msg.pos[0], msg.pos[1], msg.pos[2])
+          playerHandle.vel.set(0, 0, 0)
+          useGameStore.setState({
+            phase: 'mpPlaying',
+            hp: PLAYER.MAX_HP,
+            ammo: WEAPON.MAG_SIZE,
+            reserve: WEAPON.RESERVE,
+            reloading: false,
+          })
+          // ESC / Alt may have released the cursor; re-capture.
+          setTimeout(() => Input.requestLock(), 16)
+        } else {
+          // Remote respawned — make them visible again immediately at the
+          // new spawn (don't wait for the next snapshot).
+          useNetStore.setState((s) => {
+            const next = { ...s.remotePlayers }
+            const r = next[msg.id]
+            if (r) {
+              next[msg.id] = { ...r, pos: msg.pos, alive: true, hp: MP_MAX_HP }
+            }
+            return { remotePlayers: next }
+          })
+        }
+        break
+      }
       case 'pong':
         // TODO Phase 2: RTT measurement
         break
@@ -139,10 +239,10 @@ class NetClientImpl {
     this.ws = null
     this.myId = null
     const ph = useGameStore.getState().phase
-    // Treat an unexpected close (during active play OR while paused) as an
-    // error and surface it; a manual leave sets phase = 'menu' before
-    // calling disconnect, so this branch won't fire in that case.
-    const wasInGame = ph === 'mpPlaying' || ph === 'mpPaused'
+    // Treat an unexpected close (during active play, while paused, or
+    // mid-respawn) as an error and surface it; a manual leave sets phase
+    // = 'menu' before calling disconnect, so this branch won't fire then.
+    const wasInGame = ph === 'mpPlaying' || ph === 'mpPaused' || ph === 'mpDead'
     useNetStore.getState().setPhase('idle')
     useNetStore.getState().clearRemotes()
     useNetStore.getState().setMyId(null)
