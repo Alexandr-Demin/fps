@@ -1,12 +1,17 @@
 import { useEffect, useRef, useState } from 'react'
+import { useNetStore } from '../state/netStore'
 
 /**
  * Lightweight FPS meter. Samples frame intervals over a rolling 500ms window
  * and exposes both the average and the 1%-low (worst-frame) value so the
  * player can spot hitches during debug sessions.
+ *
+ * When connected to a MP server, also shows the latest RTT (round-trip
+ * latency in ms), updated once a second from NetClient's ping/pong loop.
  */
 export function FpsCounter() {
   const [stats, setStats] = useState({ fps: 0, low: 0 })
+  const rttMs = useNetStore((s) => s.rttMs)
   const frames = useRef(0)
   const windowStart = useRef(performance.now())
   const worstDt = useRef(0)
@@ -40,6 +45,12 @@ export function FpsCounter() {
     stats.fps >= 55 ? '#f0e070' :
     '#ff6850'
 
+  const pingColor =
+    rttMs == null     ? '#888' :
+    rttMs <= 60       ? '#7fffa3' :
+    rttMs <= 140      ? '#f0e070' :
+    '#ff6850'
+
   return (
     <div className="fps-counter">
       <div className="fps-row" style={{ color }}>
@@ -50,6 +61,12 @@ export function FpsCounter() {
         <span className="fps-label">1% LOW</span>
         <span className="fps-value">{stats.low.toFixed(0)}</span>
       </div>
+      {rttMs != null && (
+        <div className="fps-row" style={{ color: pingColor }}>
+          <span className="fps-label">PING</span>
+          <span className="fps-value">{rttMs}</span>
+        </div>
+      )}
     </div>
   )
 }

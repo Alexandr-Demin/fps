@@ -29,11 +29,15 @@ interface NetState {
   nickname: string
   error: string | null
   remotePlayers: Record<string, PlayerSnap>
+  // Round-trip latency in milliseconds, refreshed on each pong reply.
+  // null when not connected (or before the first pong lands).
+  rttMs: number | null
   setServerUrl: (url: string) => void
   setNickname: (n: string) => void
   setPhase: (p: NetPhase) => void
   setError: (e: string | null) => void
   setMyId: (id: string | null) => void
+  setRtt: (ms: number | null) => void
   upsertRemote: (snaps: PlayerSnap[]) => void
   addRemote: (snap: PlayerSnap) => void
   removeRemote: (id: string) => void
@@ -48,6 +52,7 @@ export const useNetStore = create<NetState>((set) => ({
   nickname: loadOrGenerateNickname(),
   error: null,
   remotePlayers: {},
+  rttMs: null,
   setServerUrl: (url) => set({ serverUrl: url }),
   setNickname: (n) => {
     const trimmed = n.trim().slice(0, 16)
@@ -59,6 +64,7 @@ export const useNetStore = create<NetState>((set) => ({
   setPhase: (p) => set({ phase: p }),
   setError: (e) => set({ error: e }),
   setMyId: (id) => set({ myId: id }),
+  setRtt: (ms) => set({ rttMs: ms }),
   upsertRemote: (snaps) => {
     const next: Record<string, PlayerSnap> = {}
     for (const s of snaps) next[s.id] = s

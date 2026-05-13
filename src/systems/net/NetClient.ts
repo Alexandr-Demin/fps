@@ -13,6 +13,9 @@ import {
   type PlayerId,
 } from '@shared/protocol'
 
+// How often we ping the server for RTT measurement.
+const PING_INTERVAL_MS = 1000
+
 class NetClientImpl {
   private ws: WebSocket | null = null
   private lastSentAt = 0
@@ -20,6 +23,7 @@ class NetClientImpl {
   private myId: string | null = null
   private welcomeResolve: (() => void) | null = null
   private welcomeReject: ((e: Error) => void) | null = null
+  private pingTimer: ReturnType<typeof setInterval> | null = null
 
   connect(url: string, nickname: string): Promise<void> {
     this.disconnect()
@@ -64,9 +68,26 @@ class NetClientImpl {
       try { this.ws.close() } catch {}
       this.ws = null
     }
+    this.stopPingLoop()
     this.myId = null
     this.welcomeReject = null
     this.welcomeResolve = null
+  }
+
+  private startPingLoop() {
+    this.stopPingLoop()
+    this.pingTimer = setInterval(() => {
+      if (!this.isConnected()) return
+      const msg: C2S = { t: 'ping', ts: performance.now() }
+      try { this.ws!.send(JSON.stringify(msg)) } catch {}
+    }, PING_INTERVAL_MS)
+  }
+
+  private stopPingLoop() {
+    if (this.pingTimer != null) {
+      clearInterval(this.pingTimer)
+      this.pingTimer = null
+    }
   }
 
   isConnected(): boolean {
@@ -135,6 +156,8 @@ class NetClientImpl {
           .getState()
           .upsertRemote(msg.players.filter((p) => p.id !== msg.you))
         setTimeout(() => Input.requestLock(), 16)
+        // Start sending periodic ping for RTT measurement.
+        this.startPingLoop()
         if (this.welcomeResolve) this.welcomeResolve()
         this.welcomeResolve = null
         this.welcomeReject = null
@@ -248,15 +271,23 @@ class NetClientImpl {
         AudioBus.playPistol(msg.origin)
         break
       }
-      case 'pong':
-        // TODO Phase 2: RTT measurement
+      case 'pong': {
+        // RTT = current time − ts we stamped into the ping. Server echoes
+        // ts verbatim, so this is a pure round-trip with no server-side
+        // clock dependency.
+        const rtt = performance.now() - msg.ts
+        if (rtt >= 0 && rtt < 10000) {
+          useNetStore.getState().setRtt(Math.round(rtt))
+        }
         break
+      }
     }
   }
 
   private handleClose(reason: string) {
     this.ws = null
     this.myId = null
+    this.stopPingLoop()
     const ph = useGameStore.getState().phase
     // Treat an unexpected close (during active play, while paused, or
     // mid-respawn) as an error and surface it; a manual leave sets phase
@@ -265,6 +296,7 @@ class NetClientImpl {
     useNetStore.getState().setPhase('idle')
     useNetStore.getState().clearRemotes()
     useNetStore.getState().setMyId(null)
+    useNetStore.getState().setRtt(null)
     if (wasInGame) {
       useNetStore.getState().setError(`disconnected: ${reason}`)
       useGameStore.getState().setPhase('menu')

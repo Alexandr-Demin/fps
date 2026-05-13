@@ -17,7 +17,11 @@ export function HUD() {
   const muted = useGameStore((s) => s.muted)
   const botsCanDamage = useGameStore((s) => s.botsCanDamage)
   const showHitboxes = useGameStore((s) => s.showHitboxes)
-  const debugVisible = showHitboxes || !botsCanDamage
+  const phase = useGameStore((s) => s.phase)
+  // In MP, always show the FPS / ping panel — ping is non-debug info
+  // players want to see at a glance. SP keeps it as a debug-toggle thing.
+  const isMp = phase === 'mpPlaying'
+  const debugVisible = showHitboxes || !botsCanDamage || isMp
 
   const [now, setNow] = useState(performance.now() / 1000)
   useEffect(() => {
