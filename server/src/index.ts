@@ -1,3 +1,7 @@
+import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
+import { stat, readFile } from 'node:fs/promises'
+import { extname, join, normalize, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { WebSocketServer } from 'ws'
 import { Room } from './Room.js'
 import type { MapData } from '../../shared/src/protocol.js'
@@ -13,6 +17,94 @@ const MAP_LOADERS: Record<string, () => Promise<MapData>> = {
   aim_duel:       async () => (await import('../../src/core/maps/aim_duel')).AIM_DUEL,
 }
 
+// Resolve dist/ relative to the project root (server/src/index.ts lives at
+// <root>/server/src/, so the project root is two levels up).
+const DIST_DIR = resolve(fileURLToPath(new URL('../../dist', import.meta.url)))
+
+const MIME: Record<string, string> = {
+  '.html': 'text/html; charset=utf-8',
+  '.js':   'text/javascript; charset=utf-8',
+  '.mjs':  'text/javascript; charset=utf-8',
+  '.css':  'text/css; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.svg':  'image/svg+xml',
+  '.png':  'image/png',
+  '.jpg':  'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif':  'image/gif',
+  '.webp': 'image/webp',
+  '.ico':  'image/x-icon',
+  '.woff':  'font/woff',
+  '.woff2': 'font/woff2',
+  '.wasm': 'application/wasm',
+  '.map':  'application/json; charset=utf-8',
+  '.txt':  'text/plain; charset=utf-8',
+}
+
+async function tryServeFile(absPath: string, res: ServerResponse): Promise<boolean> {
+  try {
+    const s = await stat(absPath)
+    if (!s.isFile()) return false
+    const ext = extname(absPath).toLowerCase()
+    const type = MIME[ext] ?? 'application/octet-stream'
+    const body = await readFile(absPath)
+    res.writeHead(200, { 'content-type': type, 'content-length': body.byteLength })
+    res.end(body)
+    return true
+  } catch {
+    return false
+  }
+}
+
+let distMissingLogged = false
+
+async function handleHttp(req: IncomingMessage, res: ServerResponse) {
+  if (req.method !== 'GET' && req.method !== 'HEAD') {
+    res.writeHead(405, { 'content-type': 'text/plain' }).end('method not allowed')
+    return
+  }
+
+  // Strip query / hash, normalise, and reject any path traversal attempts.
+  const urlPath = (req.url ?? '/').split('?')[0].split('#')[0]
+  const safe = normalize(decodeURIComponent(urlPath)).replace(/^([/\\])+/, '')
+  if (safe.includes('..')) {
+    res.writeHead(403).end('forbidden')
+    return
+  }
+
+  // 1) Try the literal file inside dist/
+  const literal = join(DIST_DIR, safe || 'index.html')
+  if (await tryServeFile(literal, res)) return
+
+  // 2) SPA fallback — for non-asset paths, serve index.html so client-side
+  //    routing (if any future PR adds it) still works. Asset 404s stay 404
+  //    so missing chunks are obvious.
+  const looksLikeAsset = /\.[a-z0-9]+$/i.test(safe)
+  if (!looksLikeAsset) {
+    const indexPath = join(DIST_DIR, 'index.html')
+    if (await tryServeFile(indexPath, res)) return
+  }
+
+  // 3) dist/ missing — show a friendly hint instead of a bare 404. This is
+  //    the common "ran the server without building first" case in dev.
+  if (!distMissingLogged) {
+    distMissingLogged = true
+    console.warn(
+      `[server] dist/ not found at ${DIST_DIR}. Static serving disabled. ` +
+      `Run "npm run build" (or use Vite on :5173 for dev).`
+    )
+  }
+  res.writeHead(404, { 'content-type': 'text/html; charset=utf-8' }).end(
+    '<!doctype html><meta charset="utf-8"><title>Sector-17 server</title>' +
+    '<body style="font:14px system-ui;margin:40px;color:#ddd;background:#111">' +
+    '<h1>Sector-17 server</h1>' +
+    '<p>WebSocket endpoint is live on this port.</p>' +
+    '<p>No <code>dist/</code> build found — run <code>npm run build</code> on the host ' +
+    'or open the Vite dev URL (default <code>http://localhost:5173</code>).</p>' +
+    '</body>'
+  )
+}
+
 async function main() {
   const loader = MAP_LOADERS[MAP_ID]
   if (!loader) {
@@ -24,21 +116,34 @@ async function main() {
 
   const mapData = await loader()
   const room = new Room(mapData, MAX_PLAYERS)
-  const wss = new WebSocketServer({ port: PORT })
 
+  const httpServer = createServer((req, res) => {
+    handleHttp(req, res).catch((e) => {
+      console.error('[server] http handler error:', e)
+      if (!res.headersSent) res.writeHead(500).end('internal error')
+    })
+  })
+
+  // Attach WS to the same HTTP server so http(s)://host:PORT serves the
+  // client and ws(s)://host:PORT/ accepts the WebSocket upgrade.
+  const wss = new WebSocketServer({ server: httpServer })
   wss.on('connection', (ws) => room.onConnection(ws))
   wss.on('error', (err) => console.error('[server] wss error:', err))
 
   const interval = setInterval(() => room.tick(), 1000 / TICK_RATE)
 
-  console.log(
-    `[server] listening on ${PORT}, map=${MAP_ID}, tick=${TICK_RATE}Hz, maxPlayers=${MAX_PLAYERS}`
-  )
+  httpServer.listen(PORT, () => {
+    console.log(
+      `[server] listening on ${PORT} — http + ws on same port, ` +
+      `map=${MAP_ID}, tick=${TICK_RATE}Hz, maxPlayers=${MAX_PLAYERS}`
+    )
+  })
 
   const shutdown = () => {
     console.log('[server] shutting down...')
     clearInterval(interval)
-    wss.close(() => process.exit(0))
+    wss.close()
+    httpServer.close(() => process.exit(0))
     setTimeout(() => process.exit(0), 1000)
   }
   process.on('SIGINT', shutdown)

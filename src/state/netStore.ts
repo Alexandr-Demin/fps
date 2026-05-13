@@ -44,10 +44,27 @@ interface NetState {
   clearRemotes: () => void
 }
 
+// Pick the default server URL with this priority:
+//   1. VITE_MP_SERVER env (explicit override — useful for dev pointing at a
+//      remote host while running Vite locally).
+//   2. Same-origin: derive ws(s):// from window.location so a single deployed
+//      host serves the client AND accepts WS on the same port. This is what
+//      lets a friend open one tunnel URL and play without configuring
+//      anything.
+//   3. ws://localhost:2567 fallback (SSR / unusual environments).
+function defaultServerUrl(): string {
+  const envUrl = (import.meta as any).env?.VITE_MP_SERVER as string | undefined
+  if (envUrl) return envUrl
+  if (typeof window !== 'undefined' && window.location) {
+    const wsProto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+    return `${wsProto}//${window.location.host}`
+  }
+  return 'ws://localhost:2567'
+}
+
 export const useNetStore = create<NetState>((set) => ({
   phase: 'idle',
-  serverUrl:
-    (import.meta as any).env?.VITE_MP_SERVER ?? 'ws://localhost:2567',
+  serverUrl: defaultServerUrl(),
   myId: null,
   nickname: loadOrGenerateNickname(),
   error: null,

@@ -11,13 +11,11 @@ export function MultiplayerConnect() {
   const storedNick = useNetStore((s) => s.nickname)
   const setNickname = useNetStore((s) => s.setNickname)
   const storedUrl = useNetStore((s) => s.serverUrl)
-  const setServerUrl = useNetStore((s) => s.setServerUrl)
   const error = useNetStore((s) => s.error)
   const setError = useNetStore((s) => s.setError)
   const setNetPhase = useNetStore((s) => s.setPhase)
 
   const [localNick, setLocalNick] = useState(storedNick)
-  const [localUrl, setLocalUrl] = useState(storedUrl)
 
   if (phase !== 'mpConnect' && phase !== 'mpConnecting') return null
   const connecting = phase === 'mpConnecting'
@@ -25,14 +23,12 @@ export function MultiplayerConnect() {
   const handleConnect = async () => {
     setError(null)
     const nick = localNick.trim().slice(0, 16) || storedNick
-    const url = localUrl.trim() || storedUrl
     setNickname(nick)
-    setServerUrl(url)
     setPhase('mpConnecting')
     setNetPhase('connecting')
     try {
       AudioBus.init()
-      await NetClient.connect(url, nick)
+      await NetClient.connect(storedUrl, nick)
     } catch (e: any) {
       setError(e?.message ?? 'connection failed')
       setNetPhase('error')
@@ -66,36 +62,18 @@ export function MultiplayerConnect() {
           onChange={(e) => setLocalNick(e.target.value)}
         />
 
-        <label className="hud-label" style={{ marginTop: 10 }}>
-          SERVER URL
-        </label>
-        <input
-          className="mp-input"
-          value={localUrl}
-          disabled={connecting}
-          spellCheck={false}
-          placeholder="ws://localhost:2567"
-          onChange={(e) => setLocalUrl(e.target.value)}
-        />
-
         {error && <div className="mp-error">{error}</div>}
 
         <div className="menu-buttons" style={{ marginTop: 16 }}>
           <button
             onClick={handleConnect}
-            disabled={
-              connecting || !localNick.trim() || !localUrl.trim()
-            }
+            disabled={connecting || !localNick.trim()}
           >
             {connecting ? 'CONNECTING…' : 'CONNECT'}
           </button>
           <button onClick={handleBack} disabled={connecting}>
             BACK
           </button>
-        </div>
-
-        <div className="hint" style={{ marginTop: 10 }}>
-          Phase 1 · movement-only · no shooting / HP yet
         </div>
       </div>
     </div>
