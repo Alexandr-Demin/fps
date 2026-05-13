@@ -12,6 +12,7 @@ import {
   type S2C,
   type HitZone,
   type PlayerId,
+  type RoomId,
 } from '@shared/protocol'
 
 // How often we ping the server for RTT measurement.
@@ -22,23 +23,30 @@ class NetClientImpl {
   private lastSentAt = 0
   private currentTick = 0
   private myId: string | null = null
-  private welcomeResolve: (() => void) | null = null
-  private welcomeReject: ((e: Error) => void) | null = null
+  // Promise machinery for `connect()` — resolves on lobbyWelcome (we made
+  // it into the lobby) and rejects on reject / close-before-welcome.
+  private lobbyResolve: (() => void) | null = null
+  private lobbyReject: ((e: Error) => void) | null = null
   private pingTimer: ReturnType<typeof setInterval> | null = null
 
+  /**
+   * Open a WebSocket to `url`, send `hello`, and resolve once the server
+   * sends `lobbyWelcome` (i.e. we're in the lobby and can see / create
+   * rooms). Joining a room is a separate step via createRoom() / joinRoom().
+   */
   connect(url: string, nickname: string): Promise<void> {
     this.disconnect()
     return new Promise((resolve, reject) => {
-      this.welcomeResolve = resolve
-      this.welcomeReject = reject
+      this.lobbyResolve = resolve
+      this.lobbyReject = reject
 
       let ws: WebSocket
       try {
         ws = new WebSocket(url)
       } catch (e: any) {
         reject(new Error(e?.message ?? 'invalid url'))
-        this.welcomeResolve = null
-        this.welcomeReject = null
+        this.lobbyResolve = null
+        this.lobbyReject = null
         return
       }
       this.ws = ws
@@ -49,15 +57,15 @@ class NetClientImpl {
       }
       ws.onmessage = (ev) => this.onMessage(ev.data)
       ws.onerror = () => {
-        if (this.welcomeReject) this.welcomeReject(new Error('connection error'))
-        this.welcomeReject = null
-        this.welcomeResolve = null
+        if (this.lobbyReject) this.lobbyReject(new Error('connection error'))
+        this.lobbyReject = null
+        this.lobbyResolve = null
       }
       ws.onclose = (ev) => {
-        if (this.welcomeReject) {
-          this.welcomeReject(new Error(`closed: ${ev.reason || ev.code}`))
-          this.welcomeReject = null
-          this.welcomeResolve = null
+        if (this.lobbyReject) {
+          this.lobbyReject(new Error(`closed: ${ev.reason || ev.code}`))
+          this.lobbyReject = null
+          this.lobbyResolve = null
         }
         this.handleClose(ev.reason || `code ${ev.code}`)
       }
@@ -71,8 +79,32 @@ class NetClientImpl {
     }
     this.stopPingLoop()
     this.myId = null
-    this.welcomeReject = null
-    this.welcomeResolve = null
+    this.lobbyReject = null
+    this.lobbyResolve = null
+  }
+
+  /**
+   * Lobby actions. The server replies with `roomJoined` (success) or
+   * `reject` (room full / not found). Fire-and-forget on the wire — the
+   * UI watches the phase transition for feedback.
+   */
+  createRoom() {
+    if (!this.isConnected()) return
+    const msg: C2S = { t: 'createRoom' }
+    this.ws!.send(JSON.stringify(msg))
+  }
+
+  joinRoom(roomId: RoomId) {
+    if (!this.isConnected()) return
+    const msg: C2S = { t: 'joinRoom', roomId }
+    this.ws!.send(JSON.stringify(msg))
+  }
+
+  /** Back to lobby without closing the socket. */
+  leaveRoom() {
+    if (!this.isConnected()) return
+    const msg: C2S = { t: 'leaveRoom' }
+    this.ws!.send(JSON.stringify(msg))
   }
 
   private startPingLoop() {
@@ -145,30 +177,71 @@ class NetClientImpl {
     let msg: S2C
     try { msg = JSON.parse(raw) as S2C } catch { return }
     switch (msg.t) {
-      case 'welcome': {
+      case 'lobbyWelcome': {
+        // We're in the lobby. Resolve the connect() promise; the UI flips
+        // to mpLobby and watches `rooms` for the open-rooms list. Joining
+        // / creating a room comes later via explicit user action.
         this.myId = msg.you
+        useNetStore.getState().setMyId(msg.you)
+        useNetStore.getState().setPhase('lobby')
+        useNetStore.getState().setError(null)
+        useNetStore.getState().setRooms(msg.rooms)
+        useNetStore.getState().setCurrentRoomId(null)
+        useGameStore.getState().setPhase('mpLobby')
+        // Ping starts in the lobby so RTT is already warm by the time a
+        // match starts. (Server replies pong in any phase.)
+        this.startPingLoop()
+        if (this.lobbyResolve) this.lobbyResolve()
+        this.lobbyResolve = null
+        this.lobbyReject = null
+        break
+      }
+      case 'roomList': {
+        useNetStore.getState().setRooms(msg.rooms)
+        break
+      }
+      case 'roomJoined': {
+        // We've been placed into a room — either via createRoom (we're
+        // alone) or joinRoom (someone else is the host). Same activation
+        // path as the old `welcome`: load map, start match, enter
+        // mpPlaying, prime remote players.
+        const myId = this.myId
+        useNetStore.getState().setCurrentRoomId(msg.roomId)
         useGameStore.getState().setCurrentMap(msg.map)
         useGameStore.getState().startMatch()
         useGameStore.getState().setPhase('mpPlaying')
-        useNetStore.getState().setMyId(msg.you)
         useNetStore.getState().setPhase('connected')
         useNetStore.getState().setError(null)
         useNetStore
           .getState()
-          .upsertRemote(msg.players.filter((p) => p.id !== msg.you))
+          .upsertRemote(msg.players.filter((p) => p.id !== myId))
         setTimeout(() => Input.requestLock(), 16)
-        // Start sending periodic ping for RTT measurement.
-        this.startPingLoop()
-        if (this.welcomeResolve) this.welcomeResolve()
-        this.welcomeResolve = null
-        this.welcomeReject = null
+        break
+      }
+      case 'roomLeft': {
+        // Server confirmed we're back in the lobby. Drop game state and
+        // wait for the user to pick / create another room.
+        useNetStore.getState().setCurrentRoomId(null)
+        useNetStore.getState().clearRemotes()
+        useNetStore.getState().setRooms(msg.rooms)
+        useNetStore.getState().setPhase('lobby')
+        useGameStore.getState().setPhase('mpLobby')
         break
       }
       case 'reject': {
-        if (this.welcomeReject) this.welcomeReject(new Error(msg.reason))
-        this.welcomeReject = null
-        this.welcomeResolve = null
-        this.disconnect()
+        // Two distinct contexts:
+        //   1. pre-lobbyWelcome (protocol mismatch, hello format) — fatal;
+        //      surface and close.
+        //   2. mid-session (room full / not found) — non-fatal; surface
+        //      and stay in the lobby.
+        if (this.lobbyReject) {
+          this.lobbyReject(new Error(msg.reason))
+          this.lobbyReject = null
+          this.lobbyResolve = null
+          this.disconnect()
+        } else {
+          useNetStore.getState().setError(msg.reason)
+        }
         break
       }
       case 'snapshot': {
@@ -309,15 +382,19 @@ class NetClientImpl {
     this.myId = null
     this.stopPingLoop()
     const ph = useGameStore.getState().phase
-    // Treat an unexpected close (during active play, while paused, or
-    // mid-respawn) as an error and surface it; a manual leave sets phase
-    // = 'menu' before calling disconnect, so this branch won't fire then.
-    const wasInGame = ph === 'mpPlaying' || ph === 'mpPaused' || ph === 'mpDead'
+    // Treat an unexpected close as an error if we were past the connect
+    // screen (i.e. in lobby or in a match). A manual leave sets phase
+    // = 'menu' before disconnect(), so this branch won't fire then.
+    const wasInSession =
+      ph === 'mpLobby' || ph === 'mpPlaying' ||
+      ph === 'mpPaused' || ph === 'mpDead'
     useNetStore.getState().setPhase('idle')
     useNetStore.getState().clearRemotes()
     useNetStore.getState().setMyId(null)
+    useNetStore.getState().setRooms([])
+    useNetStore.getState().setCurrentRoomId(null)
     useNetStore.getState().setRtt(null)
-    if (wasInGame) {
+    if (wasInSession) {
       useNetStore.getState().setError(`disconnected: ${reason}`)
       useGameStore.getState().setPhase('menu')
     }

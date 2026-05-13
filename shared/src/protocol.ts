@@ -2,13 +2,28 @@ import type { MapData } from '../../src/core/mapTypes'
 
 // Bump on any breaking protocol change. Clients with a different version
 // are rejected at hello-time.
-export const PROTOCOL_VERSION = 3
+export const PROTOCOL_VERSION = 4
 export type Vec3 = [number, number, number]
 export type PlayerId = string
+export type RoomId = string
 export type HitZone = 'head' | 'torso' | 'legs'
 
 export const MP_MAX_HP = 100
 export const MP_RESPAWN_MS = 4500
+
+// Per-room cap. The plan calls for 2-player duel rooms; this constant lives
+// in the protocol so client UI and server logic stay in sync.
+export const MAX_PLAYERS_PER_ROOM = 2
+
+export type RoomState = 'waiting' | 'playing'
+
+export interface RoomSummary {
+  id: RoomId
+  hostName: string
+  count: number
+  max: number
+  state: RoomState
+}
 
 export interface PlayerSnap {
   id: PlayerId
@@ -23,20 +38,31 @@ export interface PlayerSnap {
 }
 
 export type C2S =
+  // Lobby (pre-room) messages
   | { t: 'hello'; v: number; nickname: string }
+  | { t: 'createRoom' }
+  | { t: 'joinRoom'; roomId: RoomId }
+  // Optional explicit leave back to lobby. Closing the socket also drops
+  // the player from the room — this message is for a graceful "back to
+  // lobby" button without reconnecting.
+  | { t: 'leaveRoom' }
+  // In-room messages
   | { t: 'input'; tick: number; pos: Vec3; vel: Vec3; yaw: number; pitch: number }
   | { t: 'ping'; ts: number }
-  // Client-authoritative hit report. The shooter resolved the raycast and
-  // computed damage; the server trusts (acceptable for the friends-only
-  // tier — will tighten in Phase 3).
   | { t: 'hit'; target: PlayerId; damage: number; zone: HitZone }
-  // Fire-event broadcast — server fans out to other clients so they can
-  // play positional gunfire audio (visuals come later).
   | { t: 'shoot'; origin: Vec3; dir: Vec3 }
 
 export type S2C =
-  | { t: 'welcome'; you: PlayerId; map: MapData; tick: number; players: PlayerSnap[] }
+  // Lobby (pre-room) messages
+  | { t: 'lobbyWelcome'; you: PlayerId; rooms: RoomSummary[] }
+  | { t: 'roomList'; rooms: RoomSummary[] }
+  // After createRoom / joinRoom: now you're in the room. Contains the same
+  // info the pre-lobby `welcome` used to carry.
+  | { t: 'roomJoined'; roomId: RoomId; map: MapData; tick: number; players: PlayerSnap[] }
+  // After leaveRoom: dropped back into the lobby.
+  | { t: 'roomLeft'; rooms: RoomSummary[] }
   | { t: 'reject'; reason: string }
+  // In-room broadcasts
   | { t: 'playerJoined'; player: PlayerSnap }
   | { t: 'playerLeft'; id: PlayerId }
   | { t: 'snapshot'; tick: number; players: PlayerSnap[] }

@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { PlayerSnap } from '@shared/protocol'
+import type { PlayerSnap, RoomSummary } from '@shared/protocol'
 
 const NICKNAME_KEY = 'sector17.nickname'
 
@@ -20,7 +20,7 @@ function loadOrGenerateNickname(): string {
   return fresh
 }
 
-export type NetPhase = 'idle' | 'connecting' | 'connected' | 'error'
+export type NetPhase = 'idle' | 'connecting' | 'lobby' | 'connected' | 'error'
 
 interface NetState {
   phase: NetPhase
@@ -29,6 +29,11 @@ interface NetState {
   nickname: string
   error: string | null
   remotePlayers: Record<string, PlayerSnap>
+  // Lobby snapshot — list of open rooms with their hosts and slot counts.
+  // Pushed by the server on any composition change.
+  rooms: RoomSummary[]
+  // Current room id when in-room; null while in the lobby phase.
+  currentRoomId: string | null
   // Round-trip latency in milliseconds, refreshed on each pong reply.
   // null when not connected (or before the first pong lands).
   rttMs: number | null
@@ -38,6 +43,8 @@ interface NetState {
   setError: (e: string | null) => void
   setMyId: (id: string | null) => void
   setRtt: (ms: number | null) => void
+  setRooms: (rooms: RoomSummary[]) => void
+  setCurrentRoomId: (id: string | null) => void
   upsertRemote: (snaps: PlayerSnap[]) => void
   addRemote: (snap: PlayerSnap) => void
   removeRemote: (id: string) => void
@@ -69,6 +76,8 @@ export const useNetStore = create<NetState>((set) => ({
   nickname: loadOrGenerateNickname(),
   error: null,
   remotePlayers: {},
+  rooms: [],
+  currentRoomId: null,
   rttMs: null,
   setServerUrl: (url) => set({ serverUrl: url }),
   setNickname: (n) => {
@@ -82,6 +91,8 @@ export const useNetStore = create<NetState>((set) => ({
   setError: (e) => set({ error: e }),
   setMyId: (id) => set({ myId: id }),
   setRtt: (ms) => set({ rttMs: ms }),
+  setRooms: (rooms) => set({ rooms }),
+  setCurrentRoomId: (id) => set({ currentRoomId: id }),
   upsertRemote: (snaps) => {
     const next: Record<string, PlayerSnap> = {}
     for (const s of snaps) next[s.id] = s

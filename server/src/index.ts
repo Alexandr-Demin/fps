@@ -3,12 +3,14 @@ import { stat, readFile } from 'node:fs/promises'
 import { extname, join, normalize, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { WebSocketServer } from 'ws'
-import { Room } from './Room.js'
-import type { MapData } from '../../shared/src/protocol.js'
+import { Lobby } from './Lobby.js'
+import { MAX_PLAYERS_PER_ROOM, type MapData } from '../../shared/src/protocol.js'
 
 const PORT = Number(process.env.PORT ?? 2567)
 const TICK_RATE = Number(process.env.TICK_RATE ?? 30)
-const MAX_PLAYERS = Number(process.env.MAX_PLAYERS ?? 14)
+// Per-room cap. Defaults to the protocol-declared MAX_PLAYERS_PER_ROOM (2)
+// but stays env-configurable so a future FFA mode can lift it.
+const MAX_PLAYERS = Number(process.env.MAX_PLAYERS ?? MAX_PLAYERS_PER_ROOM)
 const MAP_ID = process.env.MAP_ID ?? 'sector17'
 
 const MAP_LOADERS: Record<string, () => Promise<MapData>> = {
@@ -115,7 +117,7 @@ async function main() {
   }
 
   const mapData = await loader()
-  const room = new Room(mapData, MAX_PLAYERS)
+  const lobby = new Lobby(mapData, MAX_PLAYERS)
 
   const httpServer = createServer((req, res) => {
     handleHttp(req, res).catch((e) => {
@@ -127,15 +129,15 @@ async function main() {
   // Attach WS to the same HTTP server so http(s)://host:PORT serves the
   // client and ws(s)://host:PORT/ accepts the WebSocket upgrade.
   const wss = new WebSocketServer({ server: httpServer })
-  wss.on('connection', (ws) => room.onConnection(ws))
+  wss.on('connection', (ws) => lobby.onConnection(ws))
   wss.on('error', (err) => console.error('[server] wss error:', err))
 
-  const interval = setInterval(() => room.tick(), 1000 / TICK_RATE)
+  const interval = setInterval(() => lobby.tick(), 1000 / TICK_RATE)
 
   httpServer.listen(PORT, () => {
     console.log(
       `[server] listening on ${PORT} — http + ws on same port, ` +
-      `map=${MAP_ID}, tick=${TICK_RATE}Hz, maxPlayers=${MAX_PLAYERS}`
+      `map=${MAP_ID}, tick=${TICK_RATE}Hz, maxPerRoom=${MAX_PLAYERS}`
     )
   })
 

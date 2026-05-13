@@ -12,6 +12,7 @@ import { CAMERA } from './core/constants'
 import { AudioBus } from './systems/audio/AudioSystem'
 import { EditorUI } from './editor/EditorUI'
 import { MultiplayerConnect } from './ui/MultiplayerConnect'
+import { MpLobby } from './ui/MpLobby'
 import { MpScoreboard } from './ui/MpScoreboard'
 
 export function App() {
@@ -164,6 +165,7 @@ export function App() {
       <MainMenu />
       <LevelSelect />
       <MultiplayerConnect />
+      <MpLobby />
       <MpPauseMenu />
       <DeathScreen />
       <SettingsDialog />

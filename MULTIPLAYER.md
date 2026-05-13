@@ -20,9 +20,11 @@ Open `http://localhost:5173` in two browser tabs. In each:
 
 1. Click **ARENA DUEL**
 2. Pick a nickname (saved in `localStorage`)
-3. **CONNECT** → mouse is captured, you see the other player as a blue
-   capsule with nickname + HP bar
-4. Shoot them. 3 body shots = kill. Headshots (top of capsule) = 2 to kill.
+3. **CONNECT** → you land in the lobby
+4. First tab: **CREATE DUEL** → you're in a fresh room, alone
+5. Second tab: the room appears in the lobby as `alice's duel · 1/2 ·
+   WAITING` — click it → both players are in the room
+6. Shoot. 3 body shots = kill. Headshots (top of capsule) = 2 to kill.
 
 The Vite client auto-targets `ws://localhost:5173` for the WebSocket
 (same-origin) — but Vite doesn't run the game server, so we redirect it
@@ -86,7 +88,7 @@ No port-forwarding, no DDNS, no TLS cert.
 |--------------|------------|-------|
 | `PORT`       | `2567`     | HTTP + WebSocket port (same port) |
 | `TICK_RATE`  | `30`       | Snapshots per second |
-| `MAX_PLAYERS`| `14`       | Hard cap; 15th connection is rejected with `room full` |
+| `MAX_PLAYERS`| `2`        | Per-room cap (defaults to the protocol's `MAX_PLAYERS_PER_ROOM`). 3rd connection to a full room is rejected with `room full` and the lobby push refreshes. |
 | `MAP_ID`     | `sector17` | One of: `sector17`, `tactical_arena`, `aim_duel` |
 
 `aim_duel` is the recommended map for 2-player matches — small symmetric
@@ -127,4 +129,8 @@ VITE_MP_SERVER=ws://localhost:2567
 - **`ws://` only out of the box.** If you front the server with TLS
   (Cloudflare Tunnel, nginx, etc.) the client auto-upgrades to `wss://`
   because page protocol drives the WS protocol.
-- **One global FFA room** per server process. No lobbies, no team play.
+- **No private rooms / invite codes.** All rooms are open and visible in
+  the lobby; anyone with the page URL can join any waiting room. Fine
+  for the friends-only tier.
+- **No team play.** Each room is FFA (effectively 1v1 with the default
+  `MAX_PLAYERS=2`).
