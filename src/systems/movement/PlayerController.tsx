@@ -108,28 +108,36 @@ export function PlayerController() {
     }
   }, [])
 
-  // Spawn / respawn handling
+  // Spawn / respawn handling — only on REAL entry into a match.
+  // Resuming from pause (paused → playing, mpPaused → mpPlaying) must NOT
+  // teleport the player, otherwise every ESC + resume would randomize position.
+  const prevPhaseRef = useRef<typeof phase | null>(null)
   useEffect(() => {
-    if (phase === 'playing' || phase === 'mpPlaying') {
-      const map = useGameStore.getState().currentMap
-      const spawns = filterByKind(map.entities, 'playerSpawn')
-      const spawn: [number, number, number] =
-        spawns.length > 0
-          ? spawns[Math.floor(Math.random() * spawns.length)].pos
-          : FALLBACK_SPAWN
-      const body = bodyRef.current
-      if (body) {
-        body.setNextKinematicTranslation({ x: spawn[0], y: spawn[1], z: spawn[2] })
-        body.setTranslation({ x: spawn[0], y: spawn[1], z: spawn[2] }, true)
-      }
-      velocity.current.set(0, 0, 0)
-      playerHandle.pos.set(spawn[0], spawn[1], spawn[2])
-      playerHandle.vel.set(0, 0, 0)
-      grounded.current = false
-      sliding.current = false
-      slideCooldown.current = 0
-      Input.requestLock()
+    const prev = prevPhaseRef.current
+    prevPhaseRef.current = phase
+
+    const enteredSp = phase === 'playing' && prev !== 'paused'
+    const enteredMp = phase === 'mpPlaying' && prev !== 'mpPaused'
+    if (!enteredSp && !enteredMp) return
+
+    const map = useGameStore.getState().currentMap
+    const spawns = filterByKind(map.entities, 'playerSpawn')
+    const spawn: [number, number, number] =
+      spawns.length > 0
+        ? spawns[Math.floor(Math.random() * spawns.length)].pos
+        : FALLBACK_SPAWN
+    const body = bodyRef.current
+    if (body) {
+      body.setNextKinematicTranslation({ x: spawn[0], y: spawn[1], z: spawn[2] })
+      body.setTranslation({ x: spawn[0], y: spawn[1], z: spawn[2] }, true)
     }
+    velocity.current.set(0, 0, 0)
+    playerHandle.pos.set(spawn[0], spawn[1], spawn[2])
+    playerHandle.vel.set(0, 0, 0)
+    grounded.current = false
+    sliding.current = false
+    slideCooldown.current = 0
+    Input.requestLock()
   }, [phase])
 
   // Expose camera recoil kick to weapon system via window event

@@ -4,7 +4,7 @@ export type Vec3 = Vector3Tuple
 
 export type GamePhase =
   | 'menu' | 'levelSelect' | 'playing' | 'dead' | 'paused' | 'editor'
-  | 'mpConnect' | 'mpConnecting' | 'mpPlaying'
+  | 'mpConnect' | 'mpConnecting' | 'mpPlaying' | 'mpPaused'
 
 export type BotState = 'idle' | 'patrol' | 'chase' | 'attack' | 'search' | 'dead'
 

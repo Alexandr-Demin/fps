@@ -67,6 +67,10 @@ class NetClientImpl {
   sendInput() {
     if (!this.isConnected()) return
     if (!playerHandle.body) return
+    // While paused (mpPaused), NetRoom is still mounted so remote players
+    // keep interpolating — but we stop sending our own input so the server
+    // sees us as stationary.
+    if (useGameStore.getState().phase !== 'mpPlaying') return
     const now = performance.now()
     if (now - this.lastSentAt < 33) return
     this.lastSentAt = now
@@ -134,7 +138,11 @@ class NetClientImpl {
   private handleClose(reason: string) {
     this.ws = null
     this.myId = null
-    const wasInGame = useGameStore.getState().phase === 'mpPlaying'
+    const ph = useGameStore.getState().phase
+    // Treat an unexpected close (during active play OR while paused) as an
+    // error and surface it; a manual leave sets phase = 'menu' before
+    // calling disconnect, so this branch won't fire in that case.
+    const wasInGame = ph === 'mpPlaying' || ph === 'mpPaused'
     useNetStore.getState().setPhase('idle')
     useNetStore.getState().clearRemotes()
     useNetStore.getState().setMyId(null)

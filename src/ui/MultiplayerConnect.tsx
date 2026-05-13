@@ -50,8 +50,9 @@ export function MultiplayerConnect() {
   return (
     <div className="overlay interactive">
       <div className="menu">
-        <h1>DEATHMATCH</h1>
-        <div className="sub">Connect to a server</div>
+        <div className="sub">ARENA AIM</div>
+        <h1>CONNECT</h1>
+        <div className="sub">Network aim-training arena</div>
 
         <label className="hud-label" style={{ marginTop: 16 }}>
           NICKNAME
@@ -94,7 +95,7 @@ export function MultiplayerConnect() {
         </div>
 
         <div className="hint" style={{ marginTop: 10 }}>
-          Phase 1 · movement-only · no shooting/HP yet
+          Phase 1 · movement-only · no shooting / HP yet
         </div>
       </div>
     </div>

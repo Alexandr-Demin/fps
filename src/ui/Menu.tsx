@@ -4,6 +4,7 @@ import { Input } from '../systems/input/input'
 import { AudioBus } from '../systems/audio/AudioSystem'
 import { LEVELS, COMING_SOON_SLOTS, type LevelEntry } from '../core/levels'
 import { filterByKind } from '../core/mapTypes'
+import { NetClient } from '../systems/net/NetClient'
 
 export function MainMenu() {
   const phase = useGameStore((s) => s.phase)
@@ -56,7 +57,15 @@ export function MainMenu() {
         ) : (
           <div className="menu-buttons">
             <button onClick={onDeploy}>DEPLOY · SOLO</button>
-            <button onClick={() => setPhase('mpConnect')}>DEATHMATCH</button>
+            <button
+              className="soon"
+              disabled
+              title="Network deathmatch — coming soon"
+            >
+              DEATHMATCH
+              <span className="menu-badge">SOON</span>
+            </button>
+            <button onClick={() => setPhase('mpConnect')}>ARENA AIM</button>
             <button onClick={enterEditor}>EDITOR</button>
             <button onClick={openSettings}>SETTINGS</button>
           </div>
@@ -157,6 +166,53 @@ function LevelCard({
       </div>
       <div className="level-card-cta">DEPLOY ▸</div>
     </button>
+  )
+}
+
+/**
+ * Pause overlay shown during ARENA AIM matches when the player releases the
+ * cursor (ESC). Mirrors the SP pause menu — RESUME / SETTINGS / MAIN MENU —
+ * but with network-aware MAIN MENU that cleanly disconnects before changing
+ * phase, so NetClient.handleClose doesn't flag the manual leave as an error.
+ */
+export function MpPauseMenu() {
+  const phase = useGameStore((s) => s.phase)
+  const settingsOpen = useGameStore((s) => s.settingsOpen)
+  const setPhase = useGameStore((s) => s.setPhase)
+  const openSettings = useGameStore((s) => s.openSettings)
+
+  if (phase !== 'mpPaused' || settingsOpen) return null
+
+  const onResume = () => {
+    setPhase('mpPlaying')
+    setTimeout(() => Input.requestLock(), 16)
+  }
+
+  const onLeave = () => {
+    // Phase change BEFORE disconnect: NetClient.handleClose checks current
+    // phase to decide whether to surface a "disconnected" error. By the time
+    // the socket's close event fires, phase is already 'menu' → silent leave.
+    setPhase('menu')
+    NetClient.disconnect()
+  }
+
+  return (
+    <div className="overlay interactive">
+      <div className="menu">
+        <div className="sub">ARENA AIM</div>
+        <h1>PAUSED</h1>
+
+        <div className="menu-buttons">
+          <button onClick={onResume}>RESUME</button>
+          <button onClick={openSettings}>SETTINGS</button>
+          <button onClick={onLeave}>MAIN MENU</button>
+        </div>
+
+        <div className="hint">
+          ESC — RELEASE CURSOR &nbsp;·&nbsp; CLICK CANVAS — RECAPTURE
+        </div>
+      </div>
+    </div>
   )
 }
 

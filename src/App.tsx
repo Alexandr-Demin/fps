@@ -3,7 +3,7 @@ import { Suspense, useEffect, useRef } from 'react'
 import { ACESFilmicToneMapping, PCFSoftShadowMap, SRGBColorSpace } from 'three'
 import { Scene } from './scene/Scene'
 import { HUD } from './ui/HUD'
-import { MainMenu, DeathScreen, LevelSelect } from './ui/Menu'
+import { MainMenu, DeathScreen, LevelSelect, MpPauseMenu } from './ui/Menu'
 import { SettingsDialog } from './ui/SettingsDialog'
 import { Input } from './systems/input/input'
 import { useGameStore } from './state/gameStore'
@@ -39,8 +39,12 @@ export function App() {
   useEffect(() => {
     const onPlc = () => {
       if (document.pointerLockElement) return
-      if (useGameStore.getState().phase === 'playing') {
+      const ph = useGameStore.getState().phase
+      if (ph === 'playing') {
         pauseMatch()
+      } else if (ph === 'mpPlaying') {
+        // Network match: don't disconnect — just open the MP pause overlay.
+        useGameStore.getState().setPhase('mpPaused')
       }
     }
     document.addEventListener('pointerlockchange', onPlc)
@@ -126,6 +130,7 @@ export function App() {
       <MainMenu />
       <LevelSelect />
       <MultiplayerConnect />
+      <MpPauseMenu />
       <DeathScreen />
       <SettingsDialog />
       {phase === 'editor' && <EditorUI />}
