@@ -131,6 +131,18 @@ class NetClientImpl {
     this.ws!.send(JSON.stringify(msg))
   }
 
+  /**
+   * Host-only: ask the server to restart a finished match in-place.
+   * Server validates host + phase; non-hosts and wrong-phase clicks
+   * are silently dropped. UI gates the button so this is usually a
+   * no-op for non-hosts anyway.
+   */
+  restartMatch() {
+    if (!this.isConnected()) return
+    const msg: C2S = { t: 'restartMatch' }
+    this.ws!.send(JSON.stringify(msg))
+  }
+
   private startPingLoop() {
     this.stopPingLoop()
     this.pingTimer = setInterval(() => {
@@ -280,6 +292,7 @@ class NetClientImpl {
         useNetStore.getState().setRoomPhase(msg.phase)
         useNetStore.getState().setMatchEndsAt(msg.matchEndsAt)
         useNetStore.getState().setMatchResults(null)
+        useNetStore.getState().setHostId(msg.hostId)
         useNetStore.getState().clearKillFeed()
         useGameStore.getState().setCurrentMap(msg.map)
         useGameStore.getState().startMatch()
@@ -297,6 +310,7 @@ class NetClientImpl {
         useNetStore.getState().setRoomPhase('playing')
         useNetStore.getState().setMatchEndsAt(null)
         useNetStore.getState().setMatchResults(null)
+        useNetStore.getState().setHostId(null)
         useNetStore.getState().clearKillFeed()
         useNetStore.getState().clearRemotes()
         useNetStore.getState().setRooms(msg.rooms)
@@ -332,6 +346,7 @@ class NetClientImpl {
         // HUD drift across reconnects.
         useNetStore.getState().setMatchEndsAt(msg.matchEndsAt)
         useNetStore.getState().setRoomPhase(msg.phase)
+        useNetStore.getState().setHostId(msg.hostId)
         // Pull the local player's spawn-protection flag out of the
         // snapshot so the HUD pill stays in sync with the server.
         const mySnap = myId ? msg.players.find((p) => p.id === myId) : null

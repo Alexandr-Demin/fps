@@ -12,7 +12,7 @@ const URL = process.env.WS_URL ?? 'ws://127.0.0.1:2567'
 // cold (TLS + proxy warm-up). 15s default is forgiving; override via
 // WS_TIMEOUT_MS for stricter checks in CI.
 const TIMEOUT_MS = Number(process.env.WS_TIMEOUT_MS ?? 15000)
-const PROTOCOL_VERSION = 10
+const PROTOCOL_VERSION = 11
 
 const result = {
   url: URL,

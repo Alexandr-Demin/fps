@@ -71,6 +71,10 @@ interface NetState {
   // Mirrors the server's spawn-protection state for the local player.
   // Updated from every snapshot. Drives the PROTECTED HUD pill.
   myProtected: boolean
+  // Earliest-joinedAt human in the current room, mirrored from
+  // snapshot/roomJoined. Drives the end-screen "PLAY AGAIN" button —
+  // visible only when myId === currentHostId.
+  currentHostId: PlayerId | null
   // Recent kill events for the top-right kill feed. Trimmed to the
   // last 5 entries; the UI tags each by `ts` and fades them out on
   // its own raf clock.
@@ -97,6 +101,7 @@ interface NetState {
   setMatchEndsAt: (ms: number | null) => void
   setMatchResults: (r: MatchResult[] | null) => void
   setMyProtected: (v: boolean) => void
+  setHostId: (id: PlayerId | null) => void
   addKillFeedEntry: (attackerId: PlayerId, victimId: PlayerId) => void
   clearKillFeed: () => void
   setReconnect: (state: {
@@ -142,6 +147,7 @@ export const useNetStore = create<NetState>((set) => ({
   currentMatchEndsAt: null,
   currentMatchResults: null,
   myProtected: false,
+  currentHostId: null,
   killFeed: [],
   rttMs: null,
   reconnecting: false,
@@ -166,6 +172,7 @@ export const useNetStore = create<NetState>((set) => ({
   setMatchEndsAt: (ms) => set({ currentMatchEndsAt: ms }),
   setMatchResults: (r) => set({ currentMatchResults: r }),
   setMyProtected: (v) => set({ myProtected: v }),
+  setHostId: (id) => set({ currentHostId: id }),
   addKillFeedEntry: (attackerId, victimId) =>
     set((s) => {
       const id = (s.killFeed[0]?.id ?? 0) + 1

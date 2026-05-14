@@ -109,12 +109,25 @@ export class Room {
    * room". Falls back to "empty" if the room has no humans yet.
    */
   get hostName(): string {
+    return this.hostPlayer?.nickname ?? 'empty'
+  }
+
+  /**
+   * PlayerId of the current host, or null if no humans are present.
+   * Used by clients to gate the host-only "PLAY AGAIN" button on the
+   * end-screen.
+   */
+  get hostId(): PlayerId | null {
+    return this.hostPlayer?.id ?? null
+  }
+
+  private get hostPlayer(): Player | null {
     let earliest: Player | null = null
     for (const p of this.players.values()) {
       if (p.isBot) continue
       if (!earliest || p.joinedAt < earliest.joinedAt) earliest = p
     }
-    return earliest?.nickname ?? 'empty'
+    return earliest
   }
 
   summary(): RoomSummary {
@@ -159,6 +172,7 @@ export class Room {
       players: playerList,
       phase: this.phase,
       matchEndsAt: this.matchEndsAt,
+      hostId: this.hostId,
     })
 
     // Notify existing players (everyone except the joiner).
@@ -269,8 +283,41 @@ export class Room {
           player.ws,
         )
         break
+      case 'restartMatch':
+        // Host-only, end-screen-only. Silently dropped otherwise — no
+        // need to surface error UI for a stale button click.
+        if (this.phase !== 'ended') break
+        if (player.id !== this.hostId) break
+        this.restartMatch()
+        break
       // leaveRoom / lobby messages are handled by Lobby, not here.
     }
+  }
+
+  /**
+   * Bring a finished match back to life in-place: phase → 'playing',
+   * fresh match clock, everyone respawned to a random spawn with zeroed
+   * stats. Called by the host clicking PLAY AGAIN on the end-screen.
+   * Different from resetMatch (which only runs after evictAll has
+   * already removed humans) — here humans are still in the room and
+   * need explicit respawn broadcasts.
+   */
+  restartMatch(): void {
+    this.phase = 'playing'
+    this.endedAt = 0
+    this.matchEndsAt =
+      this.matchDurationMs != null ? Date.now() + this.matchDurationMs : null
+    for (const p of this.players.values()) {
+      p.kills = 0
+      p.deaths = 0
+      p.respawn(this.randomSpawn())
+      this.broadcast({ t: 'respawned', id: p.id, pos: p.pos })
+    }
+    for (const bot of this.bots.values()) {
+      bot.currentWaypoint = null
+      bot.nextDecisionAt = 0
+    }
+    this.onStateChange()
   }
 
   tick() {
@@ -320,6 +367,7 @@ export class Room {
       players,
       phase: this.phase,
       matchEndsAt: this.matchEndsAt,
+      hostId: this.hostId,
     })
   }
 

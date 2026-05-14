@@ -17,6 +17,7 @@ export function MpEndScreen() {
   const roomPhase = useNetStore((s) => s.currentRoomPhase)
   const results = useNetStore((s) => s.currentMatchResults)
   const myId = useNetStore((s) => s.myId)
+  const hostId = useNetStore((s) => s.currentHostId)
 
   const isMp =
     gamePhase === 'mpPlaying' ||
@@ -26,8 +27,14 @@ export function MpEndScreen() {
   if (roomPhase !== 'ended') return null
   if (!results) return null
 
+  const isHost = !!myId && myId === hostId
+
   const onLeave = () => {
     NetClient.leaveRoom()
+  }
+
+  const onRestart = () => {
+    NetClient.restartMatch()
   }
 
   // Winner is the first row (sorted by kills desc / deaths asc on the
@@ -66,10 +73,17 @@ export function MpEndScreen() {
         </div>
 
         <div className="hint" style={{ marginTop: 12 }}>
-          Returning to lobby in a few seconds…
+          {isHost
+            ? 'You are host — restart the match or wait to return to lobby.'
+            : 'Waiting for host to restart, or returning to lobby in a few seconds…'}
         </div>
 
         <div className="menu-buttons" style={{ marginTop: 14 }}>
+          {isHost && (
+            <button className="menu-arena" onClick={onRestart}>
+              PLAY AGAIN
+            </button>
+          )}
           <button onClick={onLeave}>BACK TO LOBBY</button>
         </div>
       </div>

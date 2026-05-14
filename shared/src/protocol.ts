@@ -2,7 +2,7 @@ import type { MapData } from '../../src/core/mapTypes'
 
 // Bump on any breaking protocol change. Clients with a different version
 // are rejected at hello-time.
-export const PROTOCOL_VERSION = 10
+export const PROTOCOL_VERSION = 11
 export type Vec3 = [number, number, number]
 export type PlayerId = string
 export type RoomId = string
@@ -106,6 +106,10 @@ export type C2S =
   // the player from the room — this message is for a graceful "back to
   // lobby" button without reconnecting.
   | { t: 'leaveRoom' }
+  // Host-only: kick a finished arena match back into 'playing' without
+  // evicting everyone. Honoured only when sender == hostId and the
+  // room phase is 'ended'; rejected silently otherwise.
+  | { t: 'restartMatch' }
   // In-room messages
   | { t: 'input'; tick: number; pos: Vec3; vel: Vec3; yaw: number; pitch: number; state: PlayerState }
   | { t: 'ping'; ts: number }
@@ -131,6 +135,10 @@ export type S2C =
       // Epoch ms when the current match ends. null when the mode has
       // no timer (duel) or when phase is 'ended' (no match running).
       matchEndsAt: number | null
+      // Earliest-joinedAt human in the room. Drives the "host-only"
+      // PLAY AGAIN button on the end-screen. null while the room has
+      // no humans (bots don't count).
+      hostId: PlayerId | null
     }
   // After leaveRoom: dropped back into the lobby.
   | { t: 'roomLeft'; rooms: RoomSummary[] }
@@ -147,6 +155,7 @@ export type S2C =
       // mode has no timer / between matches.
       phase: RoomPhase
       matchEndsAt: number | null
+      hostId: PlayerId | null
     }
   | { t: 'pong'; ts: number }
   | { t: 'damaged'; target: PlayerId; attacker: PlayerId; amount: number; hp: number; zone: HitZone }
