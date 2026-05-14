@@ -1,10 +1,9 @@
-import { useEffect, useRef } from 'react'
+import { Suspense, useEffect, useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
 import {
   Group,
   Mesh,
   MeshBasicMaterial,
-  MeshStandardMaterial,
   PointLight,
   Vector3,
 } from 'three'
@@ -22,6 +21,7 @@ import {
   registerRemotePlayerCollider,
   unregisterRemotePlayerCollider,
 } from '../combat/hitscan'
+import { CharacterModel } from '../character/CharacterModel'
 
 // Module-level map of remote-player-id → performance.now() of the latest
 // shot. NetClient writes here when a `shotFired` event arrives; each
@@ -43,13 +43,18 @@ export function RemotePlayer({ snap }: { snap: PlayerSnap }) {
   const bodyRef = useRef<RapierRigidBody>(null!)
   const colliderHandleRef = useRef<number | null>(null)
   const hpFillRef = useRef<Mesh>(null!)
-  const bodyMatRef = useRef<MeshStandardMaterial>(null!)
   const flashMeshRef = useRef<Mesh>(null!)
   const flashLightRef = useRef<PointLight>(null!)
   const showHitboxes = useGameStore((s) => s.showHitboxes)
 
   const target = useRef(new Vector3(snap.pos[0], snap.pos[1], snap.pos[2]))
   const yawTarget = useRef(snap.yaw)
+  // Visual horizontal speed (m/s), smoothed across frames so the
+  // walk↔run threshold doesn't jitter from one snapshot's lerp tail.
+  // Fed to CharacterModel through a ref to avoid forcing a re-render
+  // every frame.
+  const speedRef = useRef(0)
+  const lastPos = useRef(new Vector3(snap.pos[0], snap.pos[1], snap.pos[2]))
   // Capsule top in world-space depends on the current pose. Used to keep
   // the nickname / HP bar billboards just above the visible silhouette
   // when the target crouches.
@@ -108,6 +113,17 @@ export function RemotePlayer({ snap }: { snap: PlayerSnap }) {
       bodyRef.current.setNextKinematicTranslation({ x: p.x, y: p.y, z: p.z })
     }
 
+    // Visible horizontal speed for the animation state machine. We
+    // take it off the post-lerp visual position rather than off the
+    // raw snap so the value is stable between snapshots. EMA smooth
+    // so a brief stall doesn't flap walk↔idle.
+    const cur = g.position
+    const sdx = cur.x - lastPos.current.x
+    const sdz = cur.z - lastPos.current.z
+    const inst = Math.hypot(sdx, sdz) / Math.max(0.001, dt)
+    speedRef.current = speedRef.current * 0.8 + inst * 0.2
+    lastPos.current.set(cur.x, cur.y, cur.z)
+
     // Pose lerp — squash + drop the inner pose group when the remote is
     // crouching or sliding, tilt forward additionally while sliding. Feet
     // stay on the ground because Y_SHIFT mirrors the height loss.
@@ -144,19 +160,8 @@ export function RemotePlayer({ snap }: { snap: PlayerSnap }) {
       hpFillRef.current.position.x = -0.35 * (1 - hpRatio)
     }
 
-    // Spawn-protection visual — semi-transparent capsule with a sub-
-    // second flicker. Opaque (opacity=1) when not protected so the
-    // material is indistinguishable from the pre-step-4.6 look.
-    if (bodyMatRef.current) {
-      if (snap.protected) {
-        const t = performance.now() / 1000
-        // 0.35..0.65 ping-pong at ~4 Hz — fast enough to read as
-        // "active" but not seizure-inducing.
-        bodyMatRef.current.opacity = 0.5 + 0.15 * Math.sin(t * Math.PI * 4)
-      } else {
-        bodyMatRef.current.opacity = 1
-      }
-    }
+    // (Spawn-protection flicker is handled inside CharacterModel
+    // — it drives opacity through every SkinnedMesh material.)
 
     // Muzzle flash decay — driven by the timestamp NetClient writes on
     // `shotFired`. Mirrors the local ViewModel flash duration so SP/MP
@@ -204,20 +209,19 @@ export function RemotePlayer({ snap }: { snap: PlayerSnap }) {
             and hitbox-debug all live here so the visual silhouette and
             the debug zones stay in sync. */}
         <group ref={poseRef}>
-          <mesh castShadow>
-            <capsuleGeometry args={[PLAYER.RADIUS, PLAYER.HEIGHT - PLAYER.RADIUS * 2, 6, 12]} />
-            <meshStandardMaterial
-              ref={bodyMatRef}
-              // Bots get a desaturated grey so they read as "test
-              // fixtures" rather than as another player. Humans keep
-              // the original arena blue.
-              color={snap.isBot ? '#5a6470' : '#3a8aff'}
-              roughness={0.6}
-              metalness={0.2}
-              transparent
-              opacity={1}
+          {/* Skinned humanoid model with locomotion clips. Wrapped in
+              Suspense so the first remote-player mount doesn't crash
+              the render tree while the ~5MB of FBX assets stream in
+              — the player slot just stays empty until the cache is
+              warm, then every subsequent mount is instant. */}
+          <Suspense fallback={null}>
+            <CharacterModel
+              state={snap.state}
+              speedRef={speedRef}
+              isBot={snap.isBot}
+              protectedFlag={snap.protected}
             />
-          </mesh>
+          </Suspense>
 
           {/* Muzzle flash — opacity/intensity driven by useFrame above. Sits
               in front of the capsule at hand height; the parent group's

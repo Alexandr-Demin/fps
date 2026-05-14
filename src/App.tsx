@@ -18,11 +18,19 @@ import { MpLobby } from './ui/MpLobby'
 import { MpReconnect } from './ui/MpReconnect'
 import { MpScoreboard } from './ui/MpScoreboard'
 import { KillFeed } from './ui/KillFeed'
+import { preloadCharacterAssets } from './systems/character/CharacterModel'
 
 export function App() {
   const canvasContainerRef = useRef<HTMLDivElement>(null)
   const pauseMatch = useGameStore((s) => s.pauseMatch)
   const phase = useGameStore((s) => s.phase)
+
+  // Kick the character FBX downloads off as early as possible so the
+  // first remote player to spawn doesn't sit invisible while ~5MB
+  // streams in under Suspense.
+  useEffect(() => {
+    preloadCharacterAssets()
+  }, [])
 
   // Bind global input to the canvas DOM element once it's mounted
   useEffect(() => {
