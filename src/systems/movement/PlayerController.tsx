@@ -8,6 +8,7 @@ import {
 } from '@react-three/rapier'
 import { Euler, Quaternion, Vector3 } from 'three'
 import { PLAYER, CAMERA, COLLISION, WEAPON } from '../../core/constants'
+import type { PlayerState } from '@shared/protocol'
 import { Input } from '../input/input'
 import { useGameStore } from '../../state/gameStore'
 import {
@@ -32,6 +33,7 @@ interface PlayerHandle {
   lookDeltaYaw: number
   lookDeltaPitch: number
   body: RapierRigidBody | null
+  state: PlayerState
 }
 
 export const playerHandle: PlayerHandle = {
@@ -43,6 +45,7 @@ export const playerHandle: PlayerHandle = {
   lookDeltaYaw: 0,
   lookDeltaPitch: 0,
   body: null,
+  state: 'standing',
 }
 
 export function PlayerController() {
@@ -335,12 +338,16 @@ export function PlayerController() {
 
     // ===== JUMP =====
     if (jump && (grounded.current || coyoteTimer.current > 0)) {
-      velocity.current.y = PLAYER.JUMP_VELOCITY
+      // Jumping out of a slide gets a boosted vertical — the slide is the
+      // setup, the jump is the payoff. Read sliding before clearing it.
+      const slideJump = sliding.current
+      velocity.current.y =
+        PLAYER.JUMP_VELOCITY * (slideJump ? PLAYER.SLIDE_JUMP_MULTIPLIER : 1)
       grounded.current = false
       coyoteTimer.current = 0
       lastJumpAt.current = performance.now() / 1000
       AudioBus.playJump()
-      if (sliding.current) {
+      if (slideJump) {
         sliding.current = false
         slideCooldown.current = PLAYER.SLIDE_COOLDOWN
       }
@@ -381,6 +388,14 @@ export function PlayerController() {
     playerHandle.pos.set(nextPos.x, nextPos.y, nextPos.z)
     playerHandle.vel.copy(velocity.current)
     playerHandle.grounded = grounded.current
+    // Snapshot the locomotion state for the network layer and any remote-
+    // model logic. sliding > crouching > standing — sliding implies crouch
+    // pose but is its own state for hitbox / tilt purposes.
+    playerHandle.state = sliding.current
+      ? 'sliding'
+      : Input.state.crouchHeld
+        ? 'crouching'
+        : 'standing'
 
     // Fall-out-of-world failsafe
     if (nextPos.y < -30) killPlayer()

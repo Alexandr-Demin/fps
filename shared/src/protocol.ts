@@ -2,11 +2,16 @@ import type { MapData } from '../../src/core/mapTypes'
 
 // Bump on any breaking protocol change. Clients with a different version
 // are rejected at hello-time.
-export const PROTOCOL_VERSION = 4
+export const PROTOCOL_VERSION = 5
 export type Vec3 = [number, number, number]
 export type PlayerId = string
 export type RoomId = string
 export type HitZone = 'head' | 'torso' | 'legs'
+
+// Per-player movement state. Drives hitbox selection on the server (in
+// future steps) and remote-model rendering on the client (lower capsule
+// when crouched, tilted-forward capsule when sliding).
+export type PlayerState = 'standing' | 'crouching' | 'sliding'
 
 export const MP_MAX_HP = 100
 export const MP_RESPAWN_MS = 4500
@@ -35,6 +40,7 @@ export interface PlayerSnap {
   kills: number
   deaths: number
   alive: boolean
+  state: PlayerState
 }
 
 export type C2S =
@@ -47,7 +53,7 @@ export type C2S =
   // lobby" button without reconnecting.
   | { t: 'leaveRoom' }
   // In-room messages
-  | { t: 'input'; tick: number; pos: Vec3; vel: Vec3; yaw: number; pitch: number }
+  | { t: 'input'; tick: number; pos: Vec3; vel: Vec3; yaw: number; pitch: number; state: PlayerState }
   | { t: 'ping'; ts: number }
   | { t: 'hit'; target: PlayerId; damage: number; zone: HitZone }
   | { t: 'shoot'; origin: Vec3; dir: Vec3 }

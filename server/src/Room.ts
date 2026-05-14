@@ -136,6 +136,7 @@ export class Room {
         player.vel = m.vel
         player.yaw = m.yaw
         player.pitch = m.pitch
+        player.state = m.state
         player.lastInputTick = m.tick
         break
       case 'ping':
@@ -222,6 +223,7 @@ export class Room {
       kills: p.kills,
       deaths: p.deaths,
       alive: p.alive,
+      state: p.state,
     }
   }
 

@@ -26,14 +26,18 @@ export const PLAYER = {
   // low friction at start + ramps up toward the end (rather than constant),
   // a small steering rate so the slide can curve toward where the camera is
   // looking, and a brief cooldown after release to prevent slide spam.
-  SLIDE_INITIAL_BOOST: 5.5,
-  SLIDE_FRICTION_START: 0.6,
+  SLIDE_INITIAL_BOOST: 7.0,
+  SLIDE_FRICTION_START: 0.4,
   SLIDE_FRICTION_END: 4.5,
   SLIDE_MIN_SPEED: 4.5,     // entry threshold — any forward motion qualifies; standing still does not
   SLIDE_END_SPEED: 3.0,     // bail out when slide has decayed below this
-  SLIDE_MAX_DURATION: 1.0,
+  SLIDE_MAX_DURATION: 1.4,
   SLIDE_COOLDOWN: 0.45,
   SLIDE_STEER_RATE: 1.7,    // rad/s of slide-direction turning toward camera
+  // Multiplier on JUMP_VELOCITY when the player jumps mid-slide. Gives the
+  // slide a satisfying launch payoff (movement-tech reward) without changing
+  // the regular jump height.
+  SLIDE_JUMP_MULTIPLIER: 1.35,
 
   // Bunny hop — CS-style: timing-strict, no auto-hop.
   // Player must press space within this window after landing to skip friction

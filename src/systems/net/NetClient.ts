@@ -171,6 +171,7 @@ class NetClientImpl {
       vel: [playerHandle.vel.x, playerHandle.vel.y, playerHandle.vel.z],
       yaw: playerHandle.yaw,
       pitch: playerHandle.pitch,
+      state: playerHandle.state,
     }
     this.ws!.send(JSON.stringify(msg))
   }
