@@ -119,9 +119,33 @@ export function Weapon() {
       store.addImpact(
         [hit.point.x, hit.point.y, hit.point.z],
         [hit.normal.x, hit.normal.y, hit.normal.z],
-        hit.isBot || hit.isRemotePlayer
+        hit.isBot || hit.isRemotePlayer || hit.isDummy
       )
       AudioBus.playImpact([hit.point.x, hit.point.y, hit.point.z])
+      // Practice-range dummies — log the resolved zone into HitStats so
+      // the player can verify the hit-zone math against the visible
+      // silhouette. No damage, no network traffic.
+      if (hit.isDummy && hit.dummy) {
+        const dyD = hit.point.y - hit.dummy.centerY
+        const tableD =
+          hit.dummy.state === 'crouching' || hit.dummy.state === 'sliding'
+            ? HITBOX_CROUCH
+            : HITBOX
+        let multD = tableD.TORSO.multiplier
+        let zoneD: 'HEAD' | 'TORSO' | 'LEGS' = 'TORSO'
+        if (dyD >= tableD.HEAD.yMin) {
+          multD = tableD.HEAD.multiplier
+          zoneD = 'HEAD'
+        } else if (dyD >= tableD.TORSO.yMin) {
+          multD = tableD.TORSO.multiplier
+          zoneD = 'TORSO'
+        } else {
+          multD = tableD.LEGS.multiplier
+          zoneD = 'LEGS'
+        }
+        store.registerHit()
+        store.recordHit(zoneD, WEAPON.DAMAGE * multD, false, hit.dummy.id)
+      }
       if (hit.isRemotePlayer && hit.remotePlayerId) {
         // Resolve the hit zone by comparing the impact-point's Y to the
         // remote player's body center (mirrors the bot HITBOX logic so

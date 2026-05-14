@@ -1,6 +1,15 @@
 import type { RigidBody, World } from '@dimforge/rapier3d-compat'
 import { Vector3 } from 'three'
 import { WEAPON } from '../../core/constants'
+import type { PlayerState } from '@shared/protocol'
+
+export interface DummyInfo {
+  id: string
+  // Body-center world Y, used by Weapon for hit-zone resolution (parallels
+  // bot.position.y and remotePlayer.pos[1]).
+  centerY: number
+  state: PlayerState
+}
 
 export interface HitscanHit {
   point: Vector3
@@ -11,6 +20,8 @@ export interface HitscanHit {
   botId?: number
   isRemotePlayer: boolean
   remotePlayerId?: string
+  isDummy: boolean
+  dummy?: DummyInfo
 }
 
 // Map of collider.handle → botId, populated by bots as they spawn.
@@ -31,6 +42,17 @@ export function registerRemotePlayerCollider(handle: number, playerId: string) {
 }
 export function unregisterRemotePlayerCollider(handle: number) {
   playerColliderMap.delete(handle)
+}
+
+// Map of collider.handle → DummyInfo, populated by TargetDummy components
+// on mount. Lets Weapon route shots into a hit-feed log without producing
+// damage or network traffic — practice-range targets only.
+const dummyColliderMap = new Map<number, DummyInfo>()
+export function registerDummyCollider(handle: number, info: DummyInfo) {
+  dummyColliderMap.set(handle, info)
+}
+export function unregisterDummyCollider(handle: number) {
+  dummyColliderMap.delete(handle)
 }
 
 export function castHitscan(
@@ -64,6 +86,7 @@ export function castHitscan(
   const handle = (hit.collider as any).handle as number
   const isBot = botColliderMap.has(handle)
   const isRemotePlayer = playerColliderMap.has(handle)
+  const isDummy = dummyColliderMap.has(handle)
   return {
     point,
     normal,
@@ -73,5 +96,7 @@ export function castHitscan(
     botId: isBot ? botColliderMap.get(handle) : undefined,
     isRemotePlayer,
     remotePlayerId: isRemotePlayer ? playerColliderMap.get(handle) : undefined,
+    isDummy,
+    dummy: isDummy ? dummyColliderMap.get(handle) : undefined,
   }
 }

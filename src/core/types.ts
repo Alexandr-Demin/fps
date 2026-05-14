@@ -3,7 +3,7 @@ import type { Vector3Tuple } from 'three'
 export type Vec3 = Vector3Tuple
 
 export type GamePhase =
-  | 'menu' | 'levelSelect' | 'playing' | 'dead' | 'paused' | 'editor'
+  | 'menu' | 'levelSelect' | 'practiceSelect' | 'playing' | 'dead' | 'paused' | 'editor'
   | 'mpConnect' | 'mpConnecting' | 'mpLobby'
   | 'mpPlaying' | 'mpPaused' | 'mpDead'
 

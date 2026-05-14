@@ -7,6 +7,7 @@ const KIND_LABEL: Record<MapEntity['kind'], string> = {
   playerSpawn: 'Player spawn',
   botSpawn: 'Bot spawn',
   waypoint: 'Waypoint',
+  targetDummy: 'Target dummy',
 }
 
 const KIND_COLOR: Record<MapEntity['kind'], string> = {
@@ -15,6 +16,7 @@ const KIND_COLOR: Record<MapEntity['kind'], string> = {
   playerSpawn: '#5af07b',
   botSpawn: '#ff5a5a',
   waypoint: '#ffd066',
+  targetDummy: '#ffd070',
 }
 
 export function Inspector() {

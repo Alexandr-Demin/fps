@@ -1,6 +1,8 @@
 // Map data schema — the editor and the runtime renderer both consume this.
 // Single source of truth for level geometry, spawn points, and waypoints.
 
+import type { PlayerState } from '../../shared/src/protocol'
+
 export type Vec3Tuple = [number, number, number]
 
 export type EntityKind =
@@ -9,6 +11,7 @@ export type EntityKind =
   | 'playerSpawn'
   | 'botSpawn'
   | 'waypoint'
+  | 'targetDummy'
 
 interface BaseEntity {
   id: string
@@ -42,12 +45,24 @@ export interface WaypointEntity extends BaseEntity {
   kind: 'waypoint'
 }
 
+// Static practice-range dummy — rendered as a posed capsule with a sensor
+// collider, just enough to test hit-zone resolution against the standing /
+// crouching / sliding silhouettes without needing another live player in
+// the room. Not part of normal gameplay maps; lives only on test maps.
+export interface TargetDummyEntity extends BaseEntity {
+  kind: 'targetDummy'
+  state: PlayerState
+  yaw?: number
+  label?: string
+}
+
 export type MapEntity =
   | ConcreteEntity
   | MetalEntity
   | PlayerSpawnEntity
   | BotSpawnEntity
   | WaypointEntity
+  | TargetDummyEntity
 
 export interface MapData {
   name: string

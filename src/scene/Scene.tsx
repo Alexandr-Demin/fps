@@ -10,6 +10,7 @@ import { PlayerController } from '../systems/movement/PlayerController'
 import { Weapon } from '../systems/combat/Weapon'
 import { BotSwarm } from '../systems/ai/BotSwarm'
 import { MapLoader } from './map/MapLoader'
+import { TargetDummies } from '../systems/dev/TargetDummy'
 import { useGameStore } from '../state/gameStore'
 import { EditorScene } from '../editor/EditorScene'
 import { NetRoom } from '../systems/net/NetRoom'
@@ -55,6 +56,9 @@ export function Scene() {
           <MapLoader map={map} />
           <PlayerController />
           {phase === 'playing' && <BotSwarm />}
+          {/* Practice-range dummies — populated from map entities of
+              kind 'targetDummy'. No-op on maps that don't have any. */}
+          {phase === 'playing' && <TargetDummies entities={map.entities} />}
           <Weapon />
           {(phase === 'mpPlaying' || phase === 'mpPaused' || phase === 'mpDead') && <NetRoom />}
         </Physics>

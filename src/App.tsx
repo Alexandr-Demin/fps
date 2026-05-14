@@ -3,7 +3,7 @@ import { Suspense, useEffect, useRef } from 'react'
 import { ACESFilmicToneMapping, PCFSoftShadowMap, SRGBColorSpace } from 'three'
 import { Scene } from './scene/Scene'
 import { HUD } from './ui/HUD'
-import { MainMenu, DeathScreen, LevelSelect, MpPauseMenu } from './ui/Menu'
+import { MainMenu, DeathScreen, LevelSelect, PracticeSelect, MpPauseMenu } from './ui/Menu'
 import { SettingsDialog } from './ui/SettingsDialog'
 import { Input } from './systems/input/input'
 import { useGameStore } from './state/gameStore'
@@ -170,6 +170,7 @@ export function App() {
       <MpScoreboard />
       <MainMenu />
       <LevelSelect />
+      <PracticeSelect />
       <MultiplayerConnect />
       <MpLobby />
       <MpPauseMenu />

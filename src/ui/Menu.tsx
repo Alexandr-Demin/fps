@@ -3,6 +3,7 @@ import { useGameStore } from '../state/gameStore'
 import { Input } from '../systems/input/input'
 import { AudioBus } from '../systems/audio/AudioSystem'
 import { LEVELS, COMING_SOON_SLOTS, type LevelEntry } from '../core/levels'
+import { PRACTICE_MAPS, type PracticeEntry } from '../core/practice'
 import { filterByKind } from '../core/mapTypes'
 import { NetClient } from '../systems/net/NetClient'
 
@@ -66,6 +67,7 @@ export function MainMenu() {
               <span className="menu-badge">SOON</span>
             </button>
             <button onClick={() => setPhase('mpConnect')}>ARENA DUEL</button>
+            <button onClick={() => setPhase('practiceSelect')}>PRACTICE</button>
             <button onClick={enterEditor}>EDITOR</button>
             <button onClick={openSettings}>SETTINGS</button>
           </div>
@@ -165,6 +167,79 @@ function LevelCard({
         <span>{stats.cover} blocks</span>
       </div>
       <div className="level-card-cta">DEPLOY ▸</div>
+    </button>
+  )
+}
+
+/**
+ * Practice / test-map picker. Sister screen to LevelSelect but pointed
+ * at the PRACTICE_MAPS registry — a dev sandbox for hitbox testing,
+ * recoil practice, movement drills, and similar fixtures. Picking an
+ * entry boots straight into 'playing' just like Deploy · Solo, with
+ * BotSwarm off (practice maps don't carry bot spawns) and any
+ * targetDummy entities rendered by Scene.tsx.
+ */
+export function PracticeSelect() {
+  const phase = useGameStore((s) => s.phase)
+  const setPhase = useGameStore((s) => s.setPhase)
+  const setCurrentMap = useGameStore((s) => s.setCurrentMap)
+  const startMatch = useGameStore((s) => s.startMatch)
+
+  if (phase !== 'practiceSelect') return null
+
+  const onPick = (entry: PracticeEntry) => {
+    setCurrentMap(entry.map)
+    startMatch()
+    setTimeout(() => Input.requestLock(), 16)
+  }
+
+  return (
+    <div className="overlay interactive">
+      <div className="menu">
+        <div className="sub">SELECT DRILL</div>
+        <h1>PRACTICE</h1>
+        <div className="sub">DEV SANDBOX — TEST FIXTURES</div>
+
+        <div className="level-grid">
+          {PRACTICE_MAPS.map((entry) => (
+            <PracticeCard key={entry.id} entry={entry} onPick={onPick} />
+          ))}
+        </div>
+
+        <div className="menu-buttons" style={{ marginTop: 8 }}>
+          <button onClick={() => setPhase('menu')}>← BACK</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function PracticeCard({
+  entry,
+  onPick,
+}: {
+  entry: PracticeEntry
+  onPick: (e: PracticeEntry) => void
+}) {
+  const dummies = filterByKind(entry.map.entities, 'targetDummy').length
+  const cover =
+    filterByKind(entry.map.entities, 'concrete').length +
+    filterByKind(entry.map.entities, 'metal').length
+
+  return (
+    <button
+      type="button"
+      className="level-card"
+      onClick={() => onPick(entry)}
+    >
+      <div className="level-card-title">{entry.title}</div>
+      <div className="level-card-tagline">{entry.tagline}</div>
+      <div className="level-card-stats">
+        <span>{dummies} dummies</span>
+        <span>·</span>
+        <span>{cover} blocks</span>
+      </div>
+      <div className="level-card-cta">START ▸</div>
     </button>
   )
 }
