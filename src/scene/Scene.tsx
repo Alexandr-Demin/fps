@@ -55,7 +55,7 @@ export function Scene() {
         <Physics gravity={[0, -28, 0]} timeStep={1 / 60}>
           <MapLoader map={map} />
           <PlayerController />
-          {phase === 'playing' && <BotSwarm />}
+          {phase === 'playing' && !map.noBots && <BotSwarm />}
           {/* Practice-range dummies — populated from map entities of
               kind 'targetDummy'. No-op on maps that don't have any. */}
           {phase === 'playing' && <TargetDummies entities={map.entities} />}

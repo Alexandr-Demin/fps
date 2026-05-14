@@ -9,6 +9,7 @@ import type { MapData } from '../mapTypes'
  */
 export const HITBOX_TEST: MapData = {
   name: 'HITBOX-TEST',
+  noBots: true,
   entities: [
     // Flat floor
     { id: 'c_floor', kind: 'concrete', pos: [0, -0.5, 0], size: [30, 1, 30], color: '#4a4e57' },

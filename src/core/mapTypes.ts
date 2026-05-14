@@ -68,6 +68,10 @@ export interface MapData {
   name: string
   entities: MapEntity[]
   fog?: { near: number; far: number; color: string }
+  // Practice / sandbox maps set this to suppress the default SP BotSwarm
+  // — the dev fixtures don't want random bots wandering into the test
+  // pad. Normal gameplay maps leave it undefined.
+  noBots?: boolean
 }
 
 // === Type guards ===
