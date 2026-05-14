@@ -138,9 +138,11 @@ export class Lobby {
     for (const r of this.rooms.values()) r.tick()
     // Garbage-collect empty rooms (in case removePlayer leaves one alive
     // but unreachable). Not strictly necessary — handleClose / leaveRoom
-    // already do it — but cheap insurance.
+    // already do it — but cheap insurance. Arena is exempt: it's the
+    // singleton landing pad, players need to see it sitting at 0/16
+    // before they join.
     for (const [id, r] of this.rooms) {
-      if (r.count === 0) {
+      if (r.count === 0 && r.mode !== 'arena') {
         this.rooms.delete(id)
         this.scheduleRoomListBroadcast()
       }
@@ -191,7 +193,9 @@ export class Lobby {
       const room = conn.room
       conn.room = null
       room.removePlayer(conn.id)
-      if (room.count === 0) {
+      // Arena is persistent — it's the landing pad for the singleton
+      // arena lobby and stays visible at 0/16 even when empty.
+      if (room.count === 0 && room.mode !== 'arena') {
         this.rooms.delete(room.id)
       }
       this.scheduleRoomListBroadcast()
@@ -212,6 +216,23 @@ export class Lobby {
       this.send(conn.ws, { t: 'reject', reason: `unknown mode: ${mode}` })
       return
     }
+
+    // Arena is a single shared room — clients clicking "JOIN ARENA"
+    // route through the same createRoom message, and we either reuse
+    // the persistent arena room or spin it up the first time. Duel
+    // rooms keep the per-create-call lifecycle.
+    if (mode === 'arena') {
+      const arena = this.getOrCreateArenaRoom()
+      if (arena.isFull()) {
+        this.send(conn.ws, { t: 'reject', reason: 'arena full' })
+        this.send(conn.ws, { t: 'roomList', rooms: this.roomSummaries() })
+        return
+      }
+      arena.addPlayer(conn.id, conn.nickname, conn.ws)
+      conn.room = arena
+      return
+    }
+
     const maxPlayers = this.maxPlayersOverride ?? cfg.maxPlayers
     const id = 'r_' + ++this.nextRoomSeq
     const room = new Room(id, mode, this.mapData, maxPlayers, () =>
@@ -224,6 +245,29 @@ export class Lobby {
       `[lobby] room ${id} (${mode}, cap=${maxPlayers}) created by ${conn.nickname}, rooms=${this.rooms.size}`,
     )
     // addPlayer already triggers onStateChange → scheduleRoomListBroadcast
+  }
+
+  /**
+   * Returns the shared arena room, creating it lazily on the first join.
+   * The room is never garbage-collected when empty — it stays in the
+   * lobby so newcomers can see "0 / 16, WAITING" rather than nothing at
+   * all. Duel rooms keep the old per-room lifecycle (empty → deleted).
+   */
+  private getOrCreateArenaRoom(): Room {
+    for (const r of this.rooms.values()) {
+      if (r.mode === 'arena') return r
+    }
+    const cfg = MODE_CONFIG.arena
+    const maxPlayers = this.maxPlayersOverride ?? cfg.maxPlayers
+    const id = 'r_arena'
+    const room = new Room(id, 'arena', this.mapData, maxPlayers, () =>
+      this.scheduleRoomListBroadcast(),
+    )
+    this.rooms.set(id, room)
+    console.log(
+      `[lobby] arena room ${id} (cap=${maxPlayers}) created on first join, rooms=${this.rooms.size}`,
+    )
+    return room
   }
 
   private joinRoomForConnection(conn: Connection, roomId: RoomId) {
@@ -252,7 +296,7 @@ export class Lobby {
     const room = conn.room
     conn.room = null
     room.removePlayer(conn.id)
-    if (room.count === 0) {
+    if (room.count === 0 && room.mode !== 'arena') {
       this.rooms.delete(room.id)
       this.scheduleRoomListBroadcast()
     }

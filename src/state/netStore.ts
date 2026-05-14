@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { PlayerSnap, RoomSummary } from '@shared/protocol'
+import type { GameMode, PlayerSnap, RoomSummary } from '@shared/protocol'
 
 const NICKNAME_KEY = 'sector17.nickname'
 
@@ -29,6 +29,11 @@ interface NetState {
   nickname: string
   error: string | null
   remotePlayers: Record<string, PlayerSnap>
+  // Which kind of lobby UI to show after the connect screen — drives
+  // the split between MpLobby's duel and arena views. Set by the menu
+  // when the player clicks DUEL or ARENA; the lobby itself doesn't
+  // mutate it.
+  lobbyMode: GameMode
   // Lobby snapshot — list of open rooms with their hosts and slot counts.
   // Pushed by the server on any composition change.
   rooms: RoomSummary[]
@@ -45,6 +50,7 @@ interface NetState {
   reconnectMaxAttempts: number
   setServerUrl: (url: string) => void
   setNickname: (n: string) => void
+  setLobbyMode: (m: GameMode) => void
   setPhase: (p: NetPhase) => void
   setError: (e: string | null) => void
   setMyId: (id: string | null) => void
@@ -87,6 +93,7 @@ export const useNetStore = create<NetState>((set) => ({
   nickname: loadOrGenerateNickname(),
   error: null,
   remotePlayers: {},
+  lobbyMode: 'duel',
   rooms: [],
   currentRoomId: null,
   rttMs: null,
@@ -101,6 +108,7 @@ export const useNetStore = create<NetState>((set) => ({
     }
     set({ nickname: trimmed })
   },
+  setLobbyMode: (m) => set({ lobbyMode: m }),
   setPhase: (p) => set({ phase: p }),
   setError: (e) => set({ error: e }),
   setMyId: (id) => set({ myId: id }),

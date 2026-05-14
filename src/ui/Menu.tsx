@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react'
 import { useGameStore } from '../state/gameStore'
+import { useNetStore } from '../state/netStore'
 import { Input } from '../systems/input/input'
 import { AudioBus } from '../systems/audio/AudioSystem'
 import { LEVELS, COMING_SOON_SLOTS, type LevelEntry } from '../core/levels'
 import { PRACTICE_MAPS, type PracticeEntry } from '../core/practice'
 import { filterByKind } from '../core/mapTypes'
 import { NetClient } from '../systems/net/NetClient'
+import type { GameMode } from '@shared/protocol'
 
 export function MainMenu() {
   const phase = useGameStore((s) => s.phase)
@@ -17,6 +19,7 @@ export function MainMenu() {
   const enterEditor = useGameStore((s) => s.enterEditor)
   const kills = useGameStore((s) => s.kills)
   const deaths = useGameStore((s) => s.deaths)
+  const setLobbyMode = useNetStore((s) => s.setLobbyMode)
 
   const showing = phase === 'menu' || phase === 'paused'
   if (!showing || settingsOpen) return null
@@ -26,6 +29,11 @@ export function MainMenu() {
   const onDeploy = () => {
     AudioBus.init()
     setPhase('levelSelect')
+  }
+  const onMp = (mode: GameMode) => {
+    AudioBus.init()
+    setLobbyMode(mode)
+    setPhase('mpConnect')
   }
   const onResume = () => {
     AudioBus.init()
@@ -58,8 +66,8 @@ export function MainMenu() {
         ) : (
           <div className="menu-buttons">
             <button onClick={onDeploy}>DEPLOY · SOLO</button>
-            <button onClick={() => setPhase('mpConnect')}>DUEL</button>
-            <button onClick={() => setPhase('mpConnect')}>ARENA</button>
+            <button onClick={() => onMp('duel')}>DUEL</button>
+            <button className="menu-arena" onClick={() => onMp('arena')}>ARENA</button>
             <button onClick={() => setPhase('practiceSelect')}>PRACTICE</button>
             <button onClick={enterEditor}>EDITOR</button>
             <button onClick={openSettings}>SETTINGS</button>

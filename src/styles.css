@@ -174,6 +174,20 @@ canvas { display: block; outline: none; }
   color: var(--bg);
 }
 
+/* ARENA gets a featured / "primary mode" colour treatment. Keeps the
+   button visually distinct from the regular outline buttons without
+   making the rest look like fallbacks. */
+.menu button.menu-arena {
+  border-color: #ffaa55;
+  color: #ffaa55;
+  background: rgba(255, 170, 85, 0.08);
+  font-weight: 600;
+}
+.menu button.menu-arena:hover {
+  background: #ffaa55;
+  color: var(--bg);
+}
+
 .menu button:disabled,
 .menu button.soon {
   cursor: not-allowed;
@@ -1152,6 +1166,28 @@ canvas { display: block; outline: none; }
 }
 .lobby-room-mode.duel  { color: #3a8aff; }
 .lobby-room-mode.arena { color: #ffaa55; }
+
+/* Arena lobby player roster — one row per player currently in the
+   singleton arena room. Lighter weight than a clickable .lobby-room
+   because the user already knows where they're going. */
+.lobby-player-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 14px;
+  background: rgba(10, 14, 22, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  color: var(--fg);
+  font-size: 13px;
+}
+.lobby-player-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #62f59a;
+  flex: 0 0 auto;
+}
+.lobby-player-name { letter-spacing: 0.05em; }
 .lobby-room:hover:not(.disabled) {
   border-color: #3a8aff;
   background: rgba(20, 28, 48, 0.85);

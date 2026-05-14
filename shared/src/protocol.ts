@@ -2,7 +2,7 @@ import type { MapData } from '../../src/core/mapTypes'
 
 // Bump on any breaking protocol change. Clients with a different version
 // are rejected at hello-time.
-export const PROTOCOL_VERSION = 6
+export const PROTOCOL_VERSION = 7
 export type Vec3 = [number, number, number]
 export type PlayerId = string
 export type RoomId = string
@@ -40,6 +40,10 @@ export interface RoomSummary {
   max: number
   state: RoomState
   mode: GameMode
+  // Pre-join roster — used by the arena lobby to show who's already in
+  // the singleton arena room before you join. Included for every room
+  // (duel rooms also carry it; the duel UI just doesn't render it).
+  playerNames: string[]
 }
 
 export interface PlayerSnap {

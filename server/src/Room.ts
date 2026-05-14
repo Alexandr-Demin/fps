@@ -68,6 +68,8 @@ export class Room {
   }
 
   summary(): RoomSummary {
+    const playerNames: string[] = []
+    for (const p of this.players.values()) playerNames.push(p.nickname)
     return {
       id: this.id,
       hostName: this.hostName,
@@ -75,6 +77,7 @@ export class Room {
       max: this.maxPlayers,
       state: this.state,
       mode: this.mode,
+      playerNames,
     }
   }
 
