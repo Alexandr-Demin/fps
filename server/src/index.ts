@@ -17,6 +17,10 @@ const MAX_PLAYERS_OVERRIDE =
   MAX_PLAYERS_RAW != null && MAX_PLAYERS_RAW !== ''
     ? Number(MAX_PLAYERS_RAW)
     : null
+// Number of waypoint-AI bots to spawn into the arena singleton on its
+// first creation. 0 keeps the room human-only (production default).
+// Range 0–8.
+const BOT_COUNT = Math.max(0, Math.min(8, Number(process.env.BOT_COUNT ?? 0)))
 const MAP_ID = process.env.MAP_ID ?? 'sector17'
 
 const MAP_LOADERS: Record<string, () => Promise<MapData>> = {
@@ -123,7 +127,7 @@ async function main() {
   }
 
   const mapData = await loader()
-  const lobby = new Lobby(mapData, MAX_PLAYERS_OVERRIDE)
+  const lobby = new Lobby(mapData, MAX_PLAYERS_OVERRIDE, BOT_COUNT)
 
   const httpServer = createServer((req, res) => {
     handleHttp(req, res).catch((e) => {
@@ -194,7 +198,7 @@ async function main() {
         : `maxPerRoom=per-mode (duel=2, arena=16)`
     console.log(
       `[server] listening on ${PORT} — http + ws on same port, ` +
-      `map=${MAP_ID}, tick=${TICK_RATE}Hz, ${cap}, ` +
+      `map=${MAP_ID}, tick=${TICK_RATE}Hz, ${cap}, bots=${BOT_COUNT}, ` +
       `perfLog=${PERF_LOG ? 'on' : 'off'} (slow>${SLOW_TICK_MS}ms)`
     )
   })

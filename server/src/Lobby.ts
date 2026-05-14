@@ -52,6 +52,11 @@ export class Lobby {
     // room regardless of the mode it created. In normal operation this
     // stays unset and Lobby reads the cap from MODE_CONFIG.
     private readonly maxPlayersOverride: number | null = null,
+    // Number of bots to drop into the arena on first creation. Set via
+    // the BOT_COUNT env var on the server (see index.ts) — useful for
+    // soloing the arena or smoke-testing with low player counts.
+    // Clamped to [0, 8].
+    private readonly arenaBotCount: number = 0,
   ) {}
 
   onConnection(ws: WebSocket) {
@@ -324,8 +329,10 @@ export class Lobby {
       () => this.scheduleRoomListBroadcast(),
     )
     this.rooms.set(id, room)
+    const botCount = Math.max(0, Math.min(8, this.arenaBotCount | 0))
+    if (botCount > 0) room.addBots(botCount)
     console.log(
-      `[lobby] arena room ${id} (cap=${maxPlayers}, durMs=${cfg.matchDurationMs}) created on first join, rooms=${this.rooms.size}`,
+      `[lobby] arena room ${id} (cap=${maxPlayers}, durMs=${cfg.matchDurationMs}, bots=${botCount}) created on first join, rooms=${this.rooms.size}`,
     )
     return room
   }

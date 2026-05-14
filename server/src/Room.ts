@@ -1,5 +1,6 @@
 import { WebSocket } from 'ws'
 import { Player } from './Player.js'
+import { Bot, BOT_DEFAULTS } from './Bot.js'
 import {
   type C2S,
   type S2C,
@@ -34,7 +35,12 @@ const MAX_DAMAGE_PER_HIT = 200
  */
 export class Room {
   readonly players = new Map<PlayerId, Player>()
+  // Bots live inside `players` too (their Player has isBot=true). This
+  // separate map is just the controllers — we walk it each tick to
+  // step their AI without filtering players.values() every time.
+  readonly bots = new Map<PlayerId, Bot>()
   private tickCount = 0
+  private lastTickMs = Date.now()
   private spawns: Vec3[]
 
   // Match-state machine. 'playing' from creation; flips to 'ended' when
@@ -76,21 +82,36 @@ export class Room {
     }
   }
 
+  /**
+   * Number of *human* players. Bots don't count toward the room cap
+   * (the lobby UI says "8 / 16" meaning 8 humans of 16-cap), and they
+   * don't keep an emptied arena alive from the lobby's GC perspective
+   * either — those checks all want humanCount, not total occupants.
+   */
   get count(): number {
+    let n = 0
+    for (const p of this.players.values()) if (!p.isBot) n++
+    return n
+  }
+
+  /** Total occupants including bots — used by Bot AI for target picks. */
+  get totalCount(): number {
     return this.players.size
   }
 
   get state(): RoomState {
-    return this.players.size >= this.maxPlayers ? 'playing' : 'waiting'
+    return this.count >= this.maxPlayers ? 'playing' : 'waiting'
   }
 
   /**
-   * Use the nickname of the lowest-id player as the room label so the row
-   * stays readable for joiners even after the original creator leaves.
+   * Use the nickname of the lowest-id *human* player as the room label
+   * so a bot-prefilled arena doesn't show up in the lobby as "BOT_00's
+   * room". Falls back to "empty" if the room has no humans yet.
    */
   get hostName(): string {
     let earliest: Player | null = null
     for (const p of this.players.values()) {
+      if (p.isBot) continue
       if (!earliest || p.joinedAt < earliest.joinedAt) earliest = p
     }
     return earliest?.nickname ?? 'empty'
@@ -112,7 +133,7 @@ export class Room {
   }
 
   isFull(): boolean {
-    return this.players.size >= this.maxPlayers
+    return this.count >= this.maxPlayers
   }
 
   /**
@@ -157,10 +178,63 @@ export class Room {
    */
   removePlayer(id: PlayerId): boolean {
     if (!this.players.delete(id)) return false
+    this.bots.delete(id) // no-op for humans
     console.log(`[room ${this.id}] player ${id} left, total=${this.count}`)
     this.broadcast({ t: 'playerLeft', id })
     this.onStateChange()
     return true
+  }
+
+  /**
+   * Spawn N waypoint-AI bots into the room. Called by Lobby once when
+   * the arena singleton is created. Bots show up to humans through the
+   * same playerJoined / snapshot path as a human would.
+   */
+  addBots(count: number): void {
+    for (let i = 0; i < count; i++) {
+      const spawn = this.randomSpawn()
+      const id = `bot_${this.id}_${i}`
+      const nick = `BOT_${String(i).padStart(2, '0')}`
+      const bot = new Bot(id, nick, spawn)
+      this.players.set(id, bot)
+      this.bots.set(id, bot)
+      this.broadcast({ t: 'playerJoined', player: this.playerSnap(bot) })
+      console.log(`[room ${this.id}] bot ${id} (${nick}) spawned`)
+    }
+    if (count > 0) this.onStateChange()
+  }
+
+  /**
+   * Random spawn point — small helper so Bot.ts doesn't have to import
+   * Player or know about the spawns array.
+   */
+  randomSpawn(): Vec3 {
+    return this.spawns[Math.floor(Math.random() * this.spawns.length)]
+  }
+
+  /**
+   * Bot AI calls these to fire a shot (broadcasts SFX) and to apply
+   * the resulting hit (routes through the same damage / death / kill
+   * book-keeping a human shooter would trigger). Kept as public hooks
+   * so Bot.ts stays away from the private state machinery.
+   */
+  botShoot(attacker: Bot, origin: Vec3, dir: Vec3): void {
+    if (this.phase !== 'playing') return
+    this.broadcast({
+      t: 'shotFired',
+      shooter: attacker.id,
+      origin,
+      dir,
+    })
+  }
+
+  botHit(
+    attacker: Bot,
+    targetId: PlayerId,
+    damage: number,
+    zone: 'head' | 'torso' | 'legs',
+  ): void {
+    this.onHit(attacker, targetId, damage, zone)
   }
 
   /**
@@ -203,6 +277,8 @@ export class Room {
     this.tickCount++
     if (this.players.size === 0) return
     const now = Date.now()
+    const dtMs = Math.max(1, now - this.lastTickMs)
+    this.lastTickMs = now
 
     // Match-clock expiry. We don't bother with this when there's no
     // timer (duel) or when the previous expiry already flipped us into
@@ -230,6 +306,10 @@ export class Room {
           this.broadcast({ t: 'respawned', id: p.id, pos: p.pos })
         }
       }
+
+      // Step bot AI after respawn handling so freshly-revived bots don't
+      // wait a tick before resuming their patrol.
+      for (const bot of this.bots.values()) bot.step(now, dtMs, this)
     }
 
     const players: PlayerSnap[] = []
@@ -279,11 +359,18 @@ export class Room {
     this.endedAt = 0
     this.matchEndsAt =
       this.matchDurationMs != null ? Date.now() + this.matchDurationMs : null
-    // Any players still left (shouldn't be after eviction, but be
-    // safe) get their stats wiped.
+    // Wipe stats. Bots stay in the room across matches, so they also
+    // need a respawn back to a fresh point with full HP.
     for (const p of this.players.values()) {
       p.kills = 0
       p.deaths = 0
+      if (p.isBot) p.respawn(this.randomSpawn())
+    }
+    // Bots get fresh navigation state so they don't keep heading to a
+    // waypoint they picked during the previous match.
+    for (const bot of this.bots.values()) {
+      bot.currentWaypoint = null
+      bot.nextDecisionAt = 0
     }
   }
 
@@ -309,7 +396,11 @@ export class Room {
     if (target.hp <= 0) {
       target.hp = 0
       target.alive = false
-      target.deadUntil = Date.now() + this.respawnMs
+      // Bots use their own respawn window (2s by default — long enough
+      // that you visibly killed them, short enough that they're not
+      // missing from the arena for an entire round).
+      target.deadUntil =
+        Date.now() + (target.isBot ? BOT_DEFAULTS.RESPAWN_MS : this.respawnMs)
       attacker.kills++
       target.deaths++
       this.broadcast({
@@ -343,6 +434,7 @@ export class Room {
       alive: p.alive,
       state: p.state,
       protected: Date.now() < p.spawnProtectedUntil,
+      isBot: p.isBot,
     }
   }
 

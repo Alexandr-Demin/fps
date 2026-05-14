@@ -21,6 +21,9 @@ export class Player {
   // first spawn (this constructor) and on every respawn. 0 = no
   // protection.
   spawnProtectedUntil = 0
+  // Subclassed to true by Bot. Drives the snap's isBot flag and lets
+  // bot AI distinguish humans from peers when picking shooting targets.
+  isBot = false
 
   constructor(
     public id: PlayerId,

@@ -208,7 +208,10 @@ export function RemotePlayer({ snap }: { snap: PlayerSnap }) {
             <capsuleGeometry args={[PLAYER.RADIUS, PLAYER.HEIGHT - PLAYER.RADIUS * 2, 6, 12]} />
             <meshStandardMaterial
               ref={bodyMatRef}
-              color="#3a8aff"
+              // Bots get a desaturated grey so they read as "test
+              // fixtures" rather than as another player. Humans keep
+              // the original arena blue.
+              color={snap.isBot ? '#5a6470' : '#3a8aff'}
               roughness={0.6}
               metalness={0.2}
               transparent
@@ -281,13 +284,13 @@ export function RemotePlayer({ snap }: { snap: PlayerSnap }) {
           <Billboard>
             <Text
               fontSize={0.22}
-              color="#ffffff"
+              color={snap.isBot ? '#a8b0bd' : '#ffffff'}
               anchorX="center"
               anchorY="middle"
               outlineWidth={0.02}
               outlineColor="#000000"
             >
-              {snap.nickname}
+              {snap.isBot ? `[BOT] ${snap.nickname}` : snap.nickname}
             </Text>
           </Billboard>
         </group>

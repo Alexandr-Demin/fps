@@ -2,7 +2,7 @@ import type { MapData } from '../../src/core/mapTypes'
 
 // Bump on any breaking protocol change. Clients with a different version
 // are rejected at hello-time.
-export const PROTOCOL_VERSION = 9
+export const PROTOCOL_VERSION = 10
 export type Vec3 = [number, number, number]
 export type PlayerId = string
 export type RoomId = string
@@ -88,12 +88,19 @@ export interface PlayerSnap {
   // models can render semi-transparent / flickering and the local HUD
   // can show a PROTECTED pill.
   protected: boolean
+  // True for waypoint-AI bots. Client uses this for the [BOT] nickname
+  // prefix and a slightly different capsule colour. Bots never carry a
+  // WebSocket on the server side.
+  isBot: boolean
 }
 
 export type C2S =
   // Lobby (pre-room) messages
   | { t: 'hello'; v: number; nickname: string }
-  | { t: 'createRoom'; mode: GameMode }
+  // Bot count is a hint, honoured only for arena (duel is human-only)
+  // and only when the room is created — once the singleton arena
+  // exists, subsequent createRoom messages just join it. Range 0–8.
+  | { t: 'createRoom'; mode: GameMode; botCount?: number }
   | { t: 'joinRoom'; roomId: RoomId }
   // Optional explicit leave back to lobby. Closing the socket also drops
   // the player from the room — this message is for a graceful "back to

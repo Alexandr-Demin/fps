@@ -29,7 +29,7 @@ const N = Number(process.env.N ?? 16)
 const DURATION_S = Number(process.env.DURATION_S ?? 60)
 const INPUT_HZ = Number(process.env.INPUT_HZ ?? 30)
 const PING_HZ = Number(process.env.PING_HZ ?? 1)
-const PROTOCOL_VERSION = Number(process.env.PROTOCOL_VER ?? 9)
+const PROTOCOL_VERSION = Number(process.env.PROTOCOL_VER ?? 10)
 const NICK_PREFIX = process.env.NICK_PREFIX ?? 'LT'
 const STAGGER_MS = Number(process.env.STAGGER_MS ?? 50)
 // Mode of the room the host creates. 'arena' is the safer default for
