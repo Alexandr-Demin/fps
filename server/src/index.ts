@@ -132,11 +132,12 @@ async function main() {
   wss.on('connection', (ws) => lobby.onConnection(ws))
   wss.on('error', (err) => console.error('[server] wss error:', err))
 
-  // Tick-time perf logger. Warn-line on any tick > SLOW_TICK_MS so a single
-  // GC pause or stall is obvious; sliding-window summary every PERF_WINDOW_MS
-  // so we can see the steady-state distribution without grepping. Disable by
-  // setting PERF_LOG=0 to silence the noise on prod once stable.
-  const PERF_LOG = process.env.PERF_LOG !== '0'
+  // Tick-time perf logger — opt-in diagnostic for tracking down freezes.
+  // When PERF_LOG=1 the server emits a warn line for any tick over
+  // SLOW_TICK_MS plus a sliding-window summary every PERF_WINDOW_MS. Off
+  // by default so the prod console stays quiet; flip on for a session
+  // when investigating lag reports. See MULTIPLAYER.md → Load testing.
+  const PERF_LOG = process.env.PERF_LOG === '1'
   const SLOW_TICK_MS = Number(process.env.SLOW_TICK_MS ?? 50)
   const PERF_WINDOW_MS = Number(process.env.PERF_WINDOW_MS ?? 10_000)
   const tickSamples: number[] = []

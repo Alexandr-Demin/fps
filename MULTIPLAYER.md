@@ -168,6 +168,9 @@ No port-forwarding, no DDNS, no TLS cert.
 | `TICK_RATE`  | `30`       | Snapshots per second |
 | `MAX_PLAYERS`| `2`        | Per-room cap (defaults to the protocol's `MAX_PLAYERS_PER_ROOM`). 3rd connection to a full room is rejected with `room full` and the lobby push refreshes. |
 | `MAP_ID`     | `sector17` | One of: `sector17`, `tactical_arena`, `aim_duel` |
+| `PERF_LOG`     | `0`        | Set to `1` to enable the tick-time perf logger (see *Load testing & perf diagnostics*). Off in prod. |
+| `SLOW_TICK_MS` | `50`       | Threshold for the per-event `SLOW tick` warn line. Only meaningful when `PERF_LOG=1`. |
+| `PERF_WINDOW_MS` | `10000`  | Sliding-window size for the periodic `[perf] window=…` summary. Only meaningful when `PERF_LOG=1`. |
 
 `aim_duel` is the recommended map for 2-player matches — small symmetric
 arena (24×30m), 4 corner spawns, two central pillars, fast TTK.
@@ -189,6 +192,124 @@ Put in `.env.local`:
 ```
 VITE_MP_SERVER=ws://localhost:2567
 ```
+
+## Load testing & perf diagnostics
+
+Two scripts under `scripts/` plus an opt-in server-side perf logger.
+Together they answer "does this server hold N players in one room, and
+when freezes happen, who's at fault — server CPU, the transport, or the
+client?" Useful before lifting `MAX_PLAYERS`, before adding new
+broadcast traffic, and when investigating lag reports.
+
+### Healthcheck — is the WS endpoint alive?
+
+```
+node scripts/healthcheck.mjs                                  # localhost
+WS_URL=wss://arena.example/ node scripts/healthcheck.mjs      # remote
+```
+
+Opens a single connection, sends `hello`, expects `lobbyWelcome` within
+15s, prints a JSON status. Exit code 0 = healthy. Use this in CI or as
+a uptime probe behind Tailscale Funnel / Cloudflare Tunnel.
+
+### Load test — N synthetic clients into one room
+
+```
+WS_URL=wss://arena.example/ N=16 DURATION_S=60 node scripts/loadtest.mjs
+```
+
+Spawns N WebSocket clients, has one create a room and the rest join it,
+then streams `input` at `INPUT_HZ` (default 30) and pings at `PING_HZ`
+(default 1) for `DURATION_S` seconds. Prints a summary at the end:
+joined count, per-client snapshot rate, RTT mean / p50 / p95 / p99 /
+max, snapshot-gap distribution (catches server stalls), per-client
+byte counts, and any failed clients.
+
+Requires the server to be started with `MAX_PLAYERS=N` (or higher), or
+the joiners after the second one are rejected with `room full`. After
+the test, drop the env var and restart to return to the duel default.
+
+Env knobs: `WS_URL`, `N`, `DURATION_S`, `INPUT_HZ`, `PING_HZ`,
+`PROTOCOL_VER`, `NICK_PREFIX`, `STAGGER_MS`.
+
+### Sweep — find the per-room capacity ceiling
+
+For an `N`-sweep, restart the server with a generous cap and loop the
+load test:
+
+```
+# on the server
+MAX_PLAYERS=64 npm run start
+
+# from any machine with network to the WS endpoint
+for N in 4 8 12 16 20 24 32 48; do
+  echo "=== N=$N ==="
+  WS_URL=wss://arena.example/ N=$N DURATION_S=20 node scripts/loadtest.mjs
+  sleep 5
+done
+```
+
+Watch for the inflection where:
+- `Snapshot rate per client` min drops noticeably below the mean (some
+  clients are starving),
+- `RTT p95` crosses ~500 ms,
+- `Snapshot gap max` crosses ~1 s.
+
+That `N` is the practical cap on the current transport. On a
+Tailscale-Funnel-fronted deployment the typical knee is around 20
+clients per room — outbound bandwidth, not server CPU, is the bottleneck.
+
+### Live feel test — N-1 bots + you
+
+When synthetic metrics look fine but players still report freezes, put
+yourself in the room and confirm by eye:
+
+```
+# server: keep MAX_PLAYERS high enough to fit you + the bots
+MAX_PLAYERS=64 npm run start
+
+# your machine: spawn 15 bots, then open the game URL and JOIN 16th
+WS_URL=wss://arena.example/ N=15 DURATION_S=600 NICK_PREFIX=BOT \
+  node scripts/loadtest.mjs
+```
+
+The bots wander on random walks and stream the same input traffic a
+real player would — broadcast load is identical to a real 16-player
+match, except the bots don't shoot back.
+
+### Server-side perf log
+
+`PERF_LOG=1` enables a tick-time wrapper around `lobby.tick()`. Two
+output forms:
+
+```
+# Per-event warn — emitted on any tick over SLOW_TICK_MS (default 50ms).
+# These correspond 1:1 to visible player-side freezes if the server is at
+# fault.
+[perf] SLOW tick: 87.4ms (rooms=1 players=16)
+
+# Sliding-window summary — emitted every PERF_WINDOW_MS (default 10s)
+# whether anything is slow or not. Gives the steady-state distribution.
+[perf] window=10.0s ticks=300 conns=17 rooms=1 players=16  tick(ms): mean=0.7 p50=0.6 p95=1.0 p99=1.4 max=1.7
+```
+
+```
+PERF_LOG=1 MAX_PLAYERS=16 npm run start
+```
+
+For a 16-player room on commodity hardware the steady-state should sit
+at `tick mean < 5ms`, `tick max < 20ms`. Tick budget at 30Hz is 33ms;
+anything approaching that means real CPU pressure (not a transport
+problem) and the optimisation path is binary protocol / lower tick
+rate / native-WS replacement.
+
+### Reading the combination
+
+| Client freeze | `SLOW tick` warns | Where to look |
+|---|---|---|
+| Yes | Yes, same time | Server CPU — GC pause, slow serialization, or N too high for a single Node process. |
+| Yes | No (tick max < 20ms) | Transport — TLS proxy buffering, ISP jitter, or client-side render-loop stall. Check the browser performance timeline next. |
+| No | No | Healthy. |
 
 ## Known limitations
 
