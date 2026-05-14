@@ -8,11 +8,13 @@ import { SettingsDialog } from './ui/SettingsDialog'
 import { Input } from './systems/input/input'
 import { useGameStore } from './state/gameStore'
 import { useEditorStore } from './state/editorStore'
+import { useNetStore } from './state/netStore'
 import { CAMERA } from './core/constants'
 import { AudioBus } from './systems/audio/AudioSystem'
 import { EditorUI } from './editor/EditorUI'
 import { MultiplayerConnect } from './ui/MultiplayerConnect'
 import { MpLobby } from './ui/MpLobby'
+import { MpReconnect } from './ui/MpReconnect'
 import { MpScoreboard } from './ui/MpScoreboard'
 
 export function App() {
@@ -60,6 +62,10 @@ export function App() {
       if (ph === 'playing') {
         pauseMatch()
       } else if (ph === 'mpPlaying') {
+        // During reconnect the cursor is released intentionally so the
+        // overlay's CANCEL button is clickable — don't also throw up the
+        // MP pause menu on top.
+        if (useNetStore.getState().reconnecting) return
         // Network match: don't disconnect — just open the MP pause overlay.
         useGameStore.getState().setPhase('mpPaused')
       }
@@ -167,6 +173,7 @@ export function App() {
       <MultiplayerConnect />
       <MpLobby />
       <MpPauseMenu />
+      <MpReconnect />
       <DeathScreen />
       <SettingsDialog />
       {phase === 'editor' && <EditorUI />}

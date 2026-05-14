@@ -18,16 +18,36 @@ import {
 // How often we ping the server for RTT measurement.
 const PING_INTERVAL_MS = 1000
 
+// Exponential backoff for auto-reconnect after an unexpected WS drop.
+// Total ~15.5s budget across 5 attempts — long enough to ride a network
+// blip / server-side hot-reload, short enough to give up before the
+// user assumes the game is dead. Tunable.
+const RECONNECT_BACKOFF_MS = [500, 1000, 2000, 4000, 8000]
+
 class NetClientImpl {
   private ws: WebSocket | null = null
-  private lastSentAt = 0
-  private currentTick = 0
   private myId: string | null = null
   // Promise machinery for `connect()` — resolves on lobbyWelcome (we made
   // it into the lobby) and rejects on reject / close-before-welcome.
   private lobbyResolve: (() => void) | null = null
   private lobbyReject: ((e: Error) => void) | null = null
   private pingTimer: ReturnType<typeof setInterval> | null = null
+
+  // ===== Reconnect bookkeeping =====
+  // `manualClose` distinguishes "user clicked leave" (don't try to
+  // reconnect) from "the network dropped" (do try). Set to true by
+  // disconnect() and read by handleClose().
+  private manualClose = false
+  private lastNickname = ''
+  private lastUrl = ''
+  // When the WS drops, remember the room we were in so we can hop back
+  // into it after the new lobbyWelcome arrives. Null if we were just
+  // sitting in the lobby.
+  private pendingRejoinRoomId: RoomId | null = null
+  // 1-based index of the next attempt to be scheduled. 0 = not in a
+  // reconnect cycle.
+  private reconnectAttempt = 0
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null
 
   /**
    * Open a WebSocket to `url`, send `hello`, and resolve once the server
@@ -36,6 +56,9 @@ class NetClientImpl {
    */
   connect(url: string, nickname: string): Promise<void> {
     this.disconnect()
+    this.manualClose = false
+    this.lastUrl = url
+    this.lastNickname = nickname
     return new Promise((resolve, reject) => {
       this.lobbyResolve = resolve
       this.lobbyReject = reject
@@ -49,30 +72,20 @@ class NetClientImpl {
         this.lobbyReject = null
         return
       }
-      this.ws = ws
-
-      ws.onopen = () => {
-        const hello: C2S = { t: 'hello', v: PROTOCOL_VERSION, nickname }
-        ws.send(JSON.stringify(hello))
-      }
-      ws.onmessage = (ev) => this.onMessage(ev.data)
-      ws.onerror = () => {
-        if (this.lobbyReject) this.lobbyReject(new Error('connection error'))
-        this.lobbyReject = null
-        this.lobbyResolve = null
-      }
-      ws.onclose = (ev) => {
-        if (this.lobbyReject) {
-          this.lobbyReject(new Error(`closed: ${ev.reason || ev.code}`))
-          this.lobbyReject = null
-          this.lobbyResolve = null
-        }
-        this.handleClose(ev.reason || `code ${ev.code}`)
-      }
+      this.attachSocket(ws)
     })
   }
 
+  /**
+   * User-initiated disconnect. Suppresses the auto-reconnect path so a
+   * deliberate "BACK / MAIN MENU" cleanly drops the session.
+   */
   disconnect() {
+    this.manualClose = true
+    this.cancelReconnectTimers()
+    this.pendingRejoinRoomId = null
+    this.lastUrl = ''
+    this.lastNickname = ''
     if (this.ws) {
       try { this.ws.close() } catch {}
       this.ws = null
@@ -81,6 +94,16 @@ class NetClientImpl {
     this.myId = null
     this.lobbyReject = null
     this.lobbyResolve = null
+  }
+
+  /**
+   * Abort an in-progress reconnect (called by the reconnect overlay's
+   * Cancel button). Tears down state and returns the user to the main
+   * menu.
+   */
+  cancelReconnect() {
+    if (!useNetStore.getState().reconnecting) return
+    this.giveUpReconnect('cancelled')
   }
 
   /**
@@ -127,12 +150,16 @@ class NetClientImpl {
     return !!this.ws && this.ws.readyState === WebSocket.OPEN
   }
 
+  /**
+   * Per-frame heartbeat from NetRoom (only mounted in mpPlaying phases).
+   * Sends our current position at ~30Hz; server trusts it and rebroadcasts
+   * inside the next snapshot.
+   */
+  private lastSentAt = 0
+  private currentTick = 0
   sendInput() {
     if (!this.isConnected()) return
     if (!playerHandle.body) return
-    // While paused (mpPaused) / dead (mpDead), NetRoom is still mounted so
-    // remote players keep interpolating — but we stop sending our own input
-    // so the server sees us as stationary.
     if (useGameStore.getState().phase !== 'mpPlaying') return
     const now = performance.now()
     if (now - this.lastSentAt < 33) return
@@ -148,12 +175,6 @@ class NetClientImpl {
     this.ws!.send(JSON.stringify(msg))
   }
 
-  /**
-   * Forward a client-resolved hit to the server. The shooter's machine ran
-   * hitscan against the remote player's sensor collider and computed the
-   * damage value + zone; we just relay. Server validates target/attacker
-   * are alive and clamps the damage value defensively.
-   */
   sendHit(target: PlayerId, damage: number, zone: HitZone) {
     if (!this.isConnected()) return
     if (useGameStore.getState().phase !== 'mpPlaying') return
@@ -161,11 +182,6 @@ class NetClientImpl {
     this.ws!.send(JSON.stringify(msg))
   }
 
-  /**
-   * Tell the server we just fired so it can broadcast a `shotFired` event
-   * to other clients for positional gunfire audio. Server doesn't
-   * validate or simulate this — pure cosmetic relay.
-   */
   sendShot(origin: [number, number, number], dir: [number, number, number]) {
     if (!this.isConnected()) return
     if (useGameStore.getState().phase !== 'mpPlaying') return
@@ -173,14 +189,45 @@ class NetClientImpl {
     this.ws!.send(JSON.stringify(msg))
   }
 
+  /**
+   * Hook a freshly-constructed WebSocket up to this instance. Used by
+   * both the initial `connect()` and the auto-reconnect flow. The
+   * on-close handler ignores stale sockets (a prior socket finishing
+   * its teardown after we've moved on to a new one) by comparing
+   * `this.ws` identity.
+   */
+  private attachSocket(ws: WebSocket) {
+    this.ws = ws
+    ws.onopen = () => {
+      const hello: C2S = {
+        t: 'hello',
+        v: PROTOCOL_VERSION,
+        nickname: this.lastNickname,
+      }
+      try { ws.send(JSON.stringify(hello)) } catch {}
+    }
+    ws.onmessage = (ev) => this.onMessage(ev.data)
+    ws.onerror = () => {
+      if (this.lobbyReject) this.lobbyReject(new Error('connection error'))
+      this.lobbyReject = null
+      this.lobbyResolve = null
+    }
+    ws.onclose = (ev) => {
+      if (this.ws !== ws) return // stale socket finishing up; ignore
+      if (this.lobbyReject) {
+        this.lobbyReject(new Error(`closed: ${ev.reason || ev.code}`))
+        this.lobbyReject = null
+        this.lobbyResolve = null
+      }
+      this.handleClose(ev.reason || `code ${ev.code}`)
+    }
+  }
+
   private onMessage(raw: any) {
     let msg: S2C
     try { msg = JSON.parse(raw) as S2C } catch { return }
     switch (msg.t) {
       case 'lobbyWelcome': {
-        // We're in the lobby. Resolve the connect() promise; the UI flips
-        // to mpLobby and watches `rooms` for the open-rooms list. Joining
-        // / creating a room comes later via explicit user action.
         this.myId = msg.you
         useNetStore.getState().setMyId(msg.you)
         useNetStore.getState().setPhase('lobby')
@@ -188,12 +235,37 @@ class NetClientImpl {
         useNetStore.getState().setRooms(msg.rooms)
         useNetStore.getState().setCurrentRoomId(null)
         useGameStore.getState().setPhase('mpLobby')
-        // Ping starts in the lobby so RTT is already warm by the time a
-        // match starts. (Server replies pong in any phase.)
         this.startPingLoop()
         if (this.lobbyResolve) this.lobbyResolve()
         this.lobbyResolve = null
         this.lobbyReject = null
+
+        // If this is a reconnect after a drop, clear the reconnect
+        // overlay and attempt to slot back into the previous room.
+        if (useNetStore.getState().reconnecting) {
+          this.reconnectAttempt = 0
+          useNetStore.getState().setReconnect({
+            reconnecting: false,
+            attempt: 0,
+            max: RECONNECT_BACKOFF_MS.length,
+          })
+        }
+        if (this.pendingRejoinRoomId) {
+          const targetId = this.pendingRejoinRoomId
+          this.pendingRejoinRoomId = null
+          const target = msg.rooms.find(
+            (r) => r.id === targetId && r.count < r.max,
+          )
+          if (target) {
+            this.joinRoom(targetId)
+          } else {
+            // Original room is gone or full — leave the user in the lobby
+            // with a hint instead of silently doing nothing.
+            useNetStore
+              .getState()
+              .setError('previous room is no longer available')
+          }
+        }
         break
       }
       case 'roomList': {
@@ -201,10 +273,6 @@ class NetClientImpl {
         break
       }
       case 'roomJoined': {
-        // We've been placed into a room — either via createRoom (we're
-        // alone) or joinRoom (someone else is the host). Same activation
-        // path as the old `welcome`: load map, start match, enter
-        // mpPlaying, prime remote players.
         const myId = this.myId
         useNetStore.getState().setCurrentRoomId(msg.roomId)
         useGameStore.getState().setCurrentMap(msg.map)
@@ -219,8 +287,6 @@ class NetClientImpl {
         break
       }
       case 'roomLeft': {
-        // Server confirmed we're back in the lobby. Drop game state and
-        // wait for the user to pick / create another room.
         useNetStore.getState().setCurrentRoomId(null)
         useNetStore.getState().clearRemotes()
         useNetStore.getState().setRooms(msg.rooms)
@@ -229,16 +295,19 @@ class NetClientImpl {
         break
       }
       case 'reject': {
-        // Two distinct contexts:
-        //   1. pre-lobbyWelcome (protocol mismatch, hello format) — fatal;
-        //      surface and close.
-        //   2. mid-session (room full / not found) — non-fatal; surface
+        // Three contexts:
+        //   1. pre-lobbyWelcome on initial connect — fatal; reject promise.
+        //   2. during reconnect (protocol mismatch / banned id) — fatal;
+        //      give up the reconnect cycle so we don't loop forever.
+        //   3. mid-session (room full / not found) — non-fatal; surface
         //      and stay in the lobby.
         if (this.lobbyReject) {
           this.lobbyReject(new Error(msg.reason))
           this.lobbyReject = null
           this.lobbyResolve = null
           this.disconnect()
+        } else if (useNetStore.getState().reconnecting) {
+          this.giveUpReconnect(msg.reason)
         } else {
           useNetStore.getState().setError(msg.reason)
         }
@@ -261,8 +330,6 @@ class NetClientImpl {
         break
       }
       case 'damaged': {
-        // Only react to damage dealt to us; remote players' HP updates
-        // ride along on the next snapshot.
         if (msg.target !== this.myId) break
         useGameStore.setState({
           hp: msg.hp,
@@ -273,8 +340,6 @@ class NetClientImpl {
       }
       case 'died': {
         if (msg.target === this.myId) {
-          // Local death — switch to mpDead, schedule respawn via
-          // server-given timestamp converted to performance.now() time-base.
           const remaining = Math.max(0, (msg.respawnAt - Date.now()) / 1000)
           useGameStore.setState((s) => ({
             phase: 'mpDead',
@@ -283,9 +348,6 @@ class NetClientImpl {
             deaths: s.deaths + 1,
           }))
         } else {
-          // Remote died — hide their capsule immediately rather than
-          // waiting for the next snapshot to land alive=false (otherwise
-          // the body lingers at the kill spot for up to ~33ms).
           useNetStore.setState((s) => {
             const next = { ...s.remotePlayers }
             const r = next[msg.target]
@@ -293,11 +355,6 @@ class NetClientImpl {
             return { remotePlayers: next }
           })
         }
-        // Whoever killed (could be us, remotely): if we did, score it and
-        // flip the KILL badge on the most recent hit-log entry for this
-        // target (recorded as killed=false at fire time). One setState
-        // so kills bump + log update + accuracy-stats kill bump land as a
-        // single batched update.
         if (msg.attacker === this.myId && msg.target !== this.myId) {
           const targetId = msg.target
           useGameStore.setState((s) => {
@@ -319,9 +376,6 @@ class NetClientImpl {
       }
       case 'respawned': {
         if (msg.id === this.myId) {
-          // Teleport BEFORE flipping phase so PlayerController's useFrame
-          // doesn't run a tick from the dead-position before being told
-          // about the new one.
           if (playerHandle.body) {
             playerHandle.body.setNextKinematicTranslation({
               x: msg.pos[0], y: msg.pos[1], z: msg.pos[2],
@@ -339,11 +393,8 @@ class NetClientImpl {
             reserve: WEAPON.RESERVE,
             reloading: false,
           })
-          // ESC / Alt may have released the cursor; re-capture.
           setTimeout(() => Input.requestLock(), 16)
         } else {
-          // Remote respawned — make them visible again immediately at the
-          // new spawn (don't wait for the next snapshot).
           useNetStore.setState((s) => {
             const next = { ...s.remotePlayers }
             const r = next[msg.id]
@@ -356,18 +407,12 @@ class NetClientImpl {
         break
       }
       case 'shotFired': {
-        // Other player fired — play positional pistol audio at their
-        // origin and flash their model's muzzle. RemotePlayer's useFrame
-        // reads the stamped timestamp and decays the flash over ~70ms.
         if (msg.shooter === this.myId) break
         AudioBus.playPistol(msg.origin)
         triggerRemoteMuzzleFlash(msg.shooter)
         break
       }
       case 'pong': {
-        // RTT = current time − ts we stamped into the ping. Server echoes
-        // ts verbatim, so this is a pure round-trip with no server-side
-        // clock dependency.
         const rtt = performance.now() - msg.ts
         if (rtt >= 0 && rtt < 10000) {
           useNetStore.getState().setRtt(Math.round(rtt))
@@ -381,13 +426,41 @@ class NetClientImpl {
     this.ws = null
     this.myId = null
     this.stopPingLoop()
+
+    if (this.manualClose) {
+      // User-initiated leave; reset state and exit. The leaving UI path
+      // already flipped phase=menu before calling disconnect(), so no
+      // phase change needed here.
+      this.manualClose = false
+      useNetStore.getState().setPhase('idle')
+      useNetStore.getState().clearRemotes()
+      useNetStore.getState().setMyId(null)
+      useNetStore.getState().setRooms([])
+      useNetStore.getState().setCurrentRoomId(null)
+      useNetStore.getState().setRtt(null)
+      return
+    }
+
     const ph = useGameStore.getState().phase
-    // Treat an unexpected close as an error if we were past the connect
-    // screen (i.e. in lobby or in a match). A manual leave sets phase
-    // = 'menu' before disconnect(), so this branch won't fire then.
     const wasInSession =
       ph === 'mpLobby' || ph === 'mpPlaying' ||
       ph === 'mpPaused' || ph === 'mpDead'
+
+    if (wasInSession && this.lastUrl) {
+      // Remember the room we were just in so the reconnect can try to
+      // jump straight back in. (null if we were sitting in the lobby.)
+      this.pendingRejoinRoomId = useNetStore.getState().currentRoomId
+      // Don't tear down gameplay state — the scene stays mounted under
+      // the reconnect overlay so the player isn't bounced to the menu.
+      useNetStore.getState().setRtt(null)
+      useNetStore.getState().setError(null)
+      this.startReconnect()
+      return
+    }
+
+    // Pre-session close (we never made it into a match) — clean up
+    // quietly. The connect() promise already rejected via the lobbyReject
+    // path inside attachSocket.onclose.
     useNetStore.getState().setPhase('idle')
     useNetStore.getState().clearRemotes()
     useNetStore.getState().setMyId(null)
@@ -397,6 +470,86 @@ class NetClientImpl {
     if (wasInSession) {
       useNetStore.getState().setError(`disconnected: ${reason}`)
       useGameStore.getState().setPhase('menu')
+    }
+  }
+
+  // ===== Reconnect cycle =====
+
+  private startReconnect() {
+    this.reconnectAttempt = 0
+    useNetStore.getState().setReconnect({
+      reconnecting: true,
+      attempt: 0,
+      max: RECONNECT_BACKOFF_MS.length,
+    })
+    // Release the cursor so the user can hit Cancel on the overlay. The
+    // roomJoined handler re-requests pointer lock once we're back in.
+    Input.exitLock()
+    this.scheduleNextAttempt()
+  }
+
+  private scheduleNextAttempt() {
+    const idx = this.reconnectAttempt
+    if (idx >= RECONNECT_BACKOFF_MS.length) {
+      this.giveUpReconnect('connection lost')
+      return
+    }
+    const delay = RECONNECT_BACKOFF_MS[idx]
+    this.reconnectAttempt = idx + 1
+    useNetStore.getState().setReconnect({
+      reconnecting: true,
+      attempt: this.reconnectAttempt,
+      max: RECONNECT_BACKOFF_MS.length,
+    })
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null
+      this.openReconnectSocket()
+    }, delay)
+  }
+
+  private openReconnectSocket() {
+    let ws: WebSocket
+    try {
+      ws = new WebSocket(this.lastUrl)
+    } catch {
+      this.scheduleNextAttempt()
+      return
+    }
+    // Don't go through `connect()` — no promise to resolve, no reset of
+    // manualClose flag (which is already false during a reconnect).
+    this.attachSocket(ws)
+  }
+
+  private giveUpReconnect(reason: string) {
+    this.cancelReconnectTimers()
+    this.reconnectAttempt = 0
+    this.pendingRejoinRoomId = null
+    useNetStore.getState().setReconnect({
+      reconnecting: false,
+      attempt: 0,
+      max: RECONNECT_BACKOFF_MS.length,
+    })
+    useNetStore.getState().setError(`disconnected: ${reason}`)
+    useNetStore.getState().setPhase('idle')
+    useNetStore.getState().clearRemotes()
+    useNetStore.getState().setMyId(null)
+    useNetStore.getState().setRooms([])
+    useNetStore.getState().setCurrentRoomId(null)
+    useNetStore.getState().setRtt(null)
+    // If a partial socket is hanging around, close it without triggering
+    // another reconnect.
+    if (this.ws) {
+      this.manualClose = true
+      try { this.ws.close() } catch {}
+      this.ws = null
+    }
+    useGameStore.getState().setPhase('menu')
+  }
+
+  private cancelReconnectTimers() {
+    if (this.reconnectTimer != null) {
+      clearTimeout(this.reconnectTimer)
+      this.reconnectTimer = null
     }
   }
 }

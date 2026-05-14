@@ -201,8 +201,14 @@ VITE_MP_SERVER=ws://localhost:2567
 - **No lag compensation.** Hits resolved on shooter's machine against
   the latest remote position — fast strafing players will eat phantom
   shots at higher ping.
-- **No reconnect.** WebSocket drop → main menu with an error. Click
-  ARENA DUEL again to retry.
+- **Auto-reconnect on short drops.** When the WS unexpectedly closes
+  during a match or lobby session, the client cycles through 5 attempts
+  with exponential backoff (~15s total) before falling back to the main
+  menu. The reconnect overlay holds the previous scene in place; on
+  success the player is dropped back into their old room if it still
+  exists, or into the lobby with a "previous room is no longer
+  available" notice. Manual disconnect (BACK / MAIN MENU) suppresses
+  the reconnect cycle — the user clearly wanted to leave.
 - **No bots in MP.** Skipped on `mpPlaying`.
 - **`ws://` only out of the box.** If you front the server with TLS
   (Cloudflare Tunnel, nginx, etc.) the client auto-upgrades to `wss://`

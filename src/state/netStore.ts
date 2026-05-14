@@ -37,6 +37,12 @@ interface NetState {
   // Round-trip latency in milliseconds, refreshed on each pong reply.
   // null when not connected (or before the first pong lands).
   rttMs: number | null
+  // Reconnect state. When `reconnecting` is true the UI overlays a
+  // "Reconnecting…" panel and gameplay input is gated. NetClient drives
+  // these values; UI is read-only.
+  reconnecting: boolean
+  reconnectAttempt: number
+  reconnectMaxAttempts: number
   setServerUrl: (url: string) => void
   setNickname: (n: string) => void
   setPhase: (p: NetPhase) => void
@@ -45,6 +51,11 @@ interface NetState {
   setRtt: (ms: number | null) => void
   setRooms: (rooms: RoomSummary[]) => void
   setCurrentRoomId: (id: string | null) => void
+  setReconnect: (state: {
+    reconnecting: boolean
+    attempt: number
+    max: number
+  }) => void
   upsertRemote: (snaps: PlayerSnap[]) => void
   addRemote: (snap: PlayerSnap) => void
   removeRemote: (id: string) => void
@@ -79,6 +90,9 @@ export const useNetStore = create<NetState>((set) => ({
   rooms: [],
   currentRoomId: null,
   rttMs: null,
+  reconnecting: false,
+  reconnectAttempt: 0,
+  reconnectMaxAttempts: 5,
   setServerUrl: (url) => set({ serverUrl: url }),
   setNickname: (n) => {
     const trimmed = n.trim().slice(0, 16)
@@ -93,6 +107,12 @@ export const useNetStore = create<NetState>((set) => ({
   setRtt: (ms) => set({ rttMs: ms }),
   setRooms: (rooms) => set({ rooms }),
   setCurrentRoomId: (id) => set({ currentRoomId: id }),
+  setReconnect: ({ reconnecting, attempt, max }) =>
+    set({
+      reconnecting,
+      reconnectAttempt: attempt,
+      reconnectMaxAttempts: max,
+    }),
   upsertRemote: (snaps) => {
     const next: Record<string, PlayerSnap> = {}
     for (const s of snaps) next[s.id] = s
