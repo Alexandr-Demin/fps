@@ -124,27 +124,31 @@ export function Weapon() {
       AudioBus.playImpact([hit.point.x, hit.point.y, hit.point.z])
       // Practice-range dummies — log the resolved zone into HitStats so
       // the player can verify the hit-zone math against the visible
-      // silhouette. No damage, no network traffic.
+      // silhouette. No damage, no network traffic. Same upperY clamp as
+      // the remote-player path: shots into air above the crouched
+      // silhouette are dropped, not promoted to phantom headshots.
       if (hit.isDummy && hit.dummy) {
         const dyD = hit.point.y - hit.dummy.centerY
         const tableD =
           hit.dummy.state === 'crouching' || hit.dummy.state === 'sliding'
             ? HITBOX_CROUCH
             : HITBOX
-        let multD = tableD.TORSO.multiplier
-        let zoneD: 'HEAD' | 'TORSO' | 'LEGS' = 'TORSO'
-        if (dyD >= tableD.HEAD.yMin) {
-          multD = tableD.HEAD.multiplier
-          zoneD = 'HEAD'
-        } else if (dyD >= tableD.TORSO.yMin) {
-          multD = tableD.TORSO.multiplier
-          zoneD = 'TORSO'
-        } else {
-          multD = tableD.LEGS.multiplier
-          zoneD = 'LEGS'
+        if (dyD <= tableD.upperY) {
+          let multD = tableD.TORSO.multiplier
+          let zoneD: 'HEAD' | 'TORSO' | 'LEGS' = 'TORSO'
+          if (dyD >= tableD.HEAD.yMin) {
+            multD = tableD.HEAD.multiplier
+            zoneD = 'HEAD'
+          } else if (dyD >= tableD.TORSO.yMin) {
+            multD = tableD.TORSO.multiplier
+            zoneD = 'TORSO'
+          } else {
+            multD = tableD.LEGS.multiplier
+            zoneD = 'LEGS'
+          }
+          store.registerHit()
+          store.recordHit(zoneD, WEAPON.DAMAGE * multD, false, hit.dummy.id)
         }
-        store.registerHit()
-        store.recordHit(zoneD, WEAPON.DAMAGE * multD, false, hit.dummy.id)
       }
       if (hit.isRemotePlayer && hit.remotePlayerId) {
         // Resolve the hit zone by comparing the impact-point's Y to the
@@ -153,35 +157,40 @@ export function Weapon() {
         // sliding targets use the shifted-down HITBOX_CROUCH table so the
         // zones agree with the lowered visual capsule.
         const remote = useNetStore.getState().remotePlayers[hit.remotePlayerId]
-        let multiplier = HITBOX.TORSO.multiplier
-        let zone: HitZone = 'torso'
         if (remote) {
           const table =
             remote.state === 'crouching' || remote.state === 'sliding'
               ? HITBOX_CROUCH
               : HITBOX
           const dy = hit.point.y - remote.pos[1]
-          if (dy >= table.HEAD.yMin) {
-            multiplier = table.HEAD.multiplier
-            zone = 'head'
-          } else if (dy >= table.TORSO.yMin) {
-            multiplier = table.TORSO.multiplier
-            zone = 'torso'
-          } else {
-            multiplier = table.LEGS.multiplier
-            zone = 'legs'
+          // Sensor collider is always full standing height, but the
+          // visible silhouette is shorter when crouched. Shots landing
+          // above the silhouette's top are misses — drop them, don't
+          // promote them to phantom headshots.
+          if (dy <= table.upperY) {
+            let multiplier = table.TORSO.multiplier
+            let zone: HitZone = 'torso'
+            if (dy >= table.HEAD.yMin) {
+              multiplier = table.HEAD.multiplier
+              zone = 'head'
+            } else if (dy >= table.TORSO.yMin) {
+              multiplier = table.TORSO.multiplier
+              zone = 'torso'
+            } else {
+              multiplier = table.LEGS.multiplier
+              zone = 'legs'
+            }
+            const damage = WEAPON.DAMAGE * multiplier
+            NetClient.sendHit(hit.remotePlayerId, damage, zone)
+            store.registerHit()
+            // Feed the hit into the local debug log. `killed` starts
+            // false — the server's `died` event retroactively flips it.
+            const zoneUpper = (
+              { head: 'HEAD', torso: 'TORSO', legs: 'LEGS' } as const
+            )[zone]
+            store.recordHit(zoneUpper, damage, false, hit.remotePlayerId)
           }
         }
-        const damage = WEAPON.DAMAGE * multiplier
-        NetClient.sendHit(hit.remotePlayerId, damage, zone)
-        store.registerHit()
-        // Feed the hit into the local debug log. `killed` starts false —
-        // the server's `died` event (handled in NetClient) retroactively
-        // flips it via markKilledForTarget once the kill is confirmed.
-        const zoneUpper = (
-          { head: 'HEAD', torso: 'TORSO', legs: 'LEGS' } as const
-        )[zone]
-        store.recordHit(zoneUpper, damage, false, hit.remotePlayerId)
       }
       if (hit.isBot && hit.botId != null) {
         // Resolve hit zone by Y offset from the bot's center.

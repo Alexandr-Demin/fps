@@ -89,7 +89,16 @@ export const WEAPON = {
 // Hitbox zones — coordinates are local to the bot's body center (rigid body
 // translation). The Y boundaries are used both for visual wireframe rendering
 // and for resolving hit zones from a hitscan point.
+//
+// `upperY` is the world-frame ceiling of the visible silhouette relative to
+// the body center. The hit resolver treats any dy > upperY as a miss (the
+// sensor capsule reaches higher than the visible model — e.g. for crouched
+// remote players whose sensor stays full-height). Without this clamp,
+// shots into the air above a crouched opponent get falsely resolved as
+// HEAD because dy > HEAD.yMin.
 export const HITBOX = {
+  // Standing capsule top = HEIGHT/2 = +0.9 from center.
+  upperY: 0.9,
   HEAD: {
     center: [0, 0.7, 0] as const,
     size:   [0.50, 0.42, 0.46] as const,
@@ -124,6 +133,10 @@ export const HITBOX = {
 // Weapon.tsx when the target's state is 'crouching' or 'sliding', so
 // headshots require aiming where the head actually is.
 export const HITBOX_CROUCH = {
+  // Visual top of the squashed capsule: 0.6 * 0.9 - 0.36 = 0.18.
+  // Shots above this threshold are landing in air the sensor capsule
+  // still occupies — they must NOT resolve as HEAD.
+  upperY: 0.18,
   HEAD: {
     // center.y = 0.6 * 0.70 - 0.36 = 0.06
     center: [0, 0.06, 0] as const,
