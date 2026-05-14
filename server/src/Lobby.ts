@@ -1,10 +1,11 @@
 import { WebSocket } from 'ws'
 import { Room } from './Room.js'
+import { MODE_CONFIG } from './modes.js'
 import {
-  MAX_PLAYERS_PER_ROOM,
   PROTOCOL_VERSION,
   type C2S,
   type S2C,
+  type GameMode,
   type MapData,
   type PlayerId,
   type RoomId,
@@ -45,7 +46,12 @@ export class Lobby {
 
   constructor(
     private readonly mapData: MapData,
-    private readonly maxPlayersPerRoom: number = MAX_PLAYERS_PER_ROOM,
+    // Optional cap override. When set, both DUEL and ARENA rooms use
+    // this number instead of the per-mode default — primarily so the
+    // load-test harness can squeeze N synthetic clients into a single
+    // room regardless of the mode it created. In normal operation this
+    // stays unset and Lobby reads the cap from MODE_CONFIG.
+    private readonly maxPlayersOverride: number | null = null,
   ) {}
 
   onConnection(ws: WebSocket) {
@@ -163,7 +169,7 @@ export class Lobby {
     // Lobby-phase messages.
     switch (m.t) {
       case 'createRoom':
-        this.createRoomForConnection(conn)
+        this.createRoomForConnection(conn, m.mode)
         break
       case 'joinRoom':
         this.joinRoomForConnection(conn, m.roomId)
@@ -196,17 +202,26 @@ export class Lobby {
     )
   }
 
-  private createRoomForConnection(conn: Connection) {
+  private createRoomForConnection(conn: Connection, mode: GameMode) {
     if (conn.room) return // shouldn't happen — guarded above
+    // Guard against a client sending an unexpected mode string. Reject
+    // instead of silently defaulting — saves a lot of confusion when
+    // diagnosing capacity issues later.
+    const cfg = MODE_CONFIG[mode]
+    if (!cfg) {
+      this.send(conn.ws, { t: 'reject', reason: `unknown mode: ${mode}` })
+      return
+    }
+    const maxPlayers = this.maxPlayersOverride ?? cfg.maxPlayers
     const id = 'r_' + ++this.nextRoomSeq
-    const room = new Room(id, this.mapData, this.maxPlayersPerRoom, () =>
+    const room = new Room(id, mode, this.mapData, maxPlayers, () =>
       this.scheduleRoomListBroadcast(),
     )
     this.rooms.set(id, room)
     room.addPlayer(conn.id, conn.nickname, conn.ws)
     conn.room = room
     console.log(
-      `[lobby] room ${id} created by ${conn.nickname}, rooms=${this.rooms.size}`,
+      `[lobby] room ${id} (${mode}, cap=${maxPlayers}) created by ${conn.nickname}, rooms=${this.rooms.size}`,
     )
     // addPlayer already triggers onStateChange → scheduleRoomListBroadcast
   }

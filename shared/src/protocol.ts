@@ -2,7 +2,7 @@ import type { MapData } from '../../src/core/mapTypes'
 
 // Bump on any breaking protocol change. Clients with a different version
 // are rejected at hello-time.
-export const PROTOCOL_VERSION = 5
+export const PROTOCOL_VERSION = 6
 export type Vec3 = [number, number, number]
 export type PlayerId = string
 export type RoomId = string
@@ -12,6 +12,17 @@ export type HitZone = 'head' | 'torso' | 'legs'
 // future steps) and remote-model rendering on the client (lower capsule
 // when crouched, tilted-forward capsule when sliding).
 export type PlayerState = 'standing' | 'crouching' | 'sliding'
+
+// Match mode. Selected at room-create time and immutable for the room's
+// lifetime; per-mode tunings (room cap, respawn cadence, match length)
+// live server-side in modes.ts.
+//
+//   - 'duel'  — 1v1 fast-respawn-disabled style, 2-player cap.
+//   - 'arena' — 16-player FFA, near-instant respawns, timed match.
+//
+// Bookkeeping fields for arena (match timer, end leaderboard) come in
+// later phase-4 steps and don't exist yet.
+export type GameMode = 'duel' | 'arena'
 
 export const MP_MAX_HP = 100
 export const MP_RESPAWN_MS = 4500
@@ -28,6 +39,7 @@ export interface RoomSummary {
   count: number
   max: number
   state: RoomState
+  mode: GameMode
 }
 
 export interface PlayerSnap {
@@ -46,7 +58,7 @@ export interface PlayerSnap {
 export type C2S =
   // Lobby (pre-room) messages
   | { t: 'hello'; v: number; nickname: string }
-  | { t: 'createRoom' }
+  | { t: 'createRoom'; mode: GameMode }
   | { t: 'joinRoom'; roomId: RoomId }
   // Optional explicit leave back to lobby. Closing the socket also drops
   // the player from the room — this message is for a graceful "back to
@@ -64,7 +76,7 @@ export type S2C =
   | { t: 'roomList'; rooms: RoomSummary[] }
   // After createRoom / joinRoom: now you're in the room. Contains the same
   // info the pre-lobby `welcome` used to carry.
-  | { t: 'roomJoined'; roomId: RoomId; map: MapData; tick: number; players: PlayerSnap[] }
+  | { t: 'roomJoined'; roomId: RoomId; mode: GameMode; map: MapData; tick: number; players: PlayerSnap[] }
   // After leaveRoom: dropped back into the lobby.
   | { t: 'roomLeft'; rooms: RoomSummary[] }
   | { t: 'reject'; reason: string }

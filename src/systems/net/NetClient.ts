@@ -10,6 +10,7 @@ import {
   MP_MAX_HP,
   type C2S,
   type S2C,
+  type GameMode,
   type HitZone,
   type PlayerId,
   type RoomId,
@@ -111,9 +112,9 @@ class NetClientImpl {
    * `reject` (room full / not found). Fire-and-forget on the wire — the
    * UI watches the phase transition for feedback.
    */
-  createRoom() {
+  createRoom(mode: GameMode) {
     if (!this.isConnected()) return
-    const msg: C2S = { t: 'createRoom' }
+    const msg: C2S = { t: 'createRoom', mode }
     this.ws!.send(JSON.stringify(msg))
   }
 

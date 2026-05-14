@@ -4,13 +4,19 @@ import { extname, join, normalize, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { WebSocketServer } from 'ws'
 import { Lobby } from './Lobby.js'
-import { MAX_PLAYERS_PER_ROOM, type MapData } from '../../shared/src/protocol.js'
+import { type MapData } from '../../shared/src/protocol.js'
 
 const PORT = Number(process.env.PORT ?? 2567)
 const TICK_RATE = Number(process.env.TICK_RATE ?? 30)
-// Per-room cap. Defaults to the protocol-declared MAX_PLAYERS_PER_ROOM (2)
-// but stays env-configurable so a future FFA mode can lift it.
-const MAX_PLAYERS = Number(process.env.MAX_PLAYERS ?? MAX_PLAYERS_PER_ROOM)
+// Optional per-room cap override. When unset, room cap comes from the
+// per-mode config in server/src/modes.ts (duel=2, arena=16). Set MAX_PLAYERS
+// only to force the load-test harness past those caps when measuring
+// capacity ceilings.
+const MAX_PLAYERS_RAW = process.env.MAX_PLAYERS
+const MAX_PLAYERS_OVERRIDE =
+  MAX_PLAYERS_RAW != null && MAX_PLAYERS_RAW !== ''
+    ? Number(MAX_PLAYERS_RAW)
+    : null
 const MAP_ID = process.env.MAP_ID ?? 'sector17'
 
 const MAP_LOADERS: Record<string, () => Promise<MapData>> = {
@@ -117,7 +123,7 @@ async function main() {
   }
 
   const mapData = await loader()
-  const lobby = new Lobby(mapData, MAX_PLAYERS)
+  const lobby = new Lobby(mapData, MAX_PLAYERS_OVERRIDE)
 
   const httpServer = createServer((req, res) => {
     handleHttp(req, res).catch((e) => {
@@ -182,9 +188,13 @@ async function main() {
   }, 1000 / TICK_RATE)
 
   httpServer.listen(PORT, () => {
+    const cap =
+      MAX_PLAYERS_OVERRIDE != null
+        ? `maxPerRoom=${MAX_PLAYERS_OVERRIDE} (override)`
+        : `maxPerRoom=per-mode (duel=2, arena=16)`
     console.log(
       `[server] listening on ${PORT} — http + ws on same port, ` +
-      `map=${MAP_ID}, tick=${TICK_RATE}Hz, maxPerRoom=${MAX_PLAYERS}, ` +
+      `map=${MAP_ID}, tick=${TICK_RATE}Hz, ${cap}, ` +
       `perfLog=${PERF_LOG ? 'on' : 'off'} (slow>${SLOW_TICK_MS}ms)`
     )
   })

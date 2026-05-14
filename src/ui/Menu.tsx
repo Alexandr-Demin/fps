@@ -58,15 +58,8 @@ export function MainMenu() {
         ) : (
           <div className="menu-buttons">
             <button onClick={onDeploy}>DEPLOY · SOLO</button>
-            <button
-              className="soon"
-              disabled
-              title="Network deathmatch — coming soon"
-            >
-              DEATHMATCH
-              <span className="menu-badge">SOON</span>
-            </button>
-            <button onClick={() => setPhase('mpConnect')}>ARENA DUEL</button>
+            <button onClick={() => setPhase('mpConnect')}>DUEL</button>
+            <button onClick={() => setPhase('mpConnect')}>ARENA</button>
             <button onClick={() => setPhase('practiceSelect')}>PRACTICE</button>
             <button onClick={enterEditor}>EDITOR</button>
             <button onClick={openSettings}>SETTINGS</button>
@@ -274,7 +267,7 @@ export function MpPauseMenu() {
   return (
     <div className="overlay interactive">
       <div className="menu">
-        <div className="sub">ARENA DUEL</div>
+        <div className="sub">MULTIPLAYER</div>
         <h1>PAUSED</h1>
 
         <div className="menu-buttons">

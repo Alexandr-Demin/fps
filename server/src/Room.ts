@@ -4,6 +4,7 @@ import {
   MP_RESPAWN_MS,
   type C2S,
   type S2C,
+  type GameMode,
   type PlayerSnap,
   type Vec3,
   type MapData,
@@ -32,6 +33,7 @@ export class Room {
 
   constructor(
     public readonly id: RoomId,
+    public readonly mode: GameMode,
     public readonly mapData: MapData,
     public readonly maxPlayers: number,
     // Called whenever the room's composition changes (join, leave, full,
@@ -72,6 +74,7 @@ export class Room {
       count: this.count,
       max: this.maxPlayers,
       state: this.state,
+      mode: this.mode,
     }
   }
 
@@ -96,6 +99,7 @@ export class Room {
     this.send(ws, {
       t: 'roomJoined',
       roomId: this.id,
+      mode: this.mode,
       map: this.mapData,
       tick: this.tickCount,
       players: playerList,

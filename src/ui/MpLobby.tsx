@@ -1,7 +1,7 @@
 import { useGameStore } from '../state/gameStore'
 import { useNetStore } from '../state/netStore'
 import { NetClient } from '../systems/net/NetClient'
-import { MAX_PLAYERS_PER_ROOM, type RoomSummary } from '@shared/protocol'
+import { type GameMode, type RoomSummary } from '@shared/protocol'
 
 /**
  * Open-rooms lobby. Shows the list of currently-active rooms pushed by the
@@ -18,9 +18,9 @@ export function MpLobby() {
 
   if (phase !== 'mpLobby') return null
 
-  const onCreate = () => {
+  const onCreate = (mode: GameMode) => {
     setError(null)
-    NetClient.createRoom()
+    NetClient.createRoom(mode)
   }
 
   const onJoin = (roomId: string) => {
@@ -41,12 +41,13 @@ export function MpLobby() {
   return (
     <div className="overlay interactive">
       <div className="menu" style={{ minWidth: 420 }}>
-        <div className="sub">ARENA DUEL</div>
+        <div className="sub">MULTIPLAYER</div>
         <h1>LOBBY</h1>
         <div className="sub">YOU · {myNick}</div>
 
         <div className="menu-buttons" style={{ marginTop: 14 }}>
-          <button onClick={onCreate}>CREATE DUEL</button>
+          <button onClick={() => onCreate('duel')}>CREATE DUEL</button>
+          <button onClick={() => onCreate('arena')}>CREATE ARENA</button>
         </div>
 
         {error && <div className="mp-error">{error}</div>}
@@ -89,6 +90,10 @@ function RoomRow({
 }) {
   const full = room.count >= room.max
   const stateLabel = room.state === 'playing' ? 'PLAYING' : 'WAITING'
+  // Older servers / pre-v6 clients may briefly arrive without `mode` —
+  // fall back to 'duel' so the row still renders rather than blowing up.
+  const mode = room.mode ?? 'duel'
+  const modeLabel = mode === 'arena' ? 'ARENA' : 'DUEL'
   return (
     <button
       type="button"
@@ -96,9 +101,10 @@ function RoomRow({
       disabled={disabled || full}
       onClick={() => !disabled && !full && onJoin?.(room.id)}
     >
-      <span className="lobby-room-name">{room.hostName}&apos;s duel</span>
+      <span className={`lobby-room-mode ${mode}`}>{modeLabel}</span>
+      <span className="lobby-room-name">{room.hostName}&apos;s room</span>
       <span className="lobby-room-count">
-        {room.count}/{room.max ?? MAX_PLAYERS_PER_ROOM}
+        {room.count}/{room.max}
       </span>
       <span className={`lobby-room-state ${room.state}`}>{stateLabel}</span>
     </button>

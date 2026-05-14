@@ -6,9 +6,9 @@ import WebSocket from 'ws'
 // At the end, prints aggregate metrics: snapshot rate, RTT percentiles,
 // per-client bytes/sec, drop counts.
 //
-// IMPORTANT: needs the server started with MAX_PLAYERS=16 (or whatever N is)
-// so the joiners aren't rejected by the duel-default cap of 2. Reset MAX_PLAYERS
-// after the test (drop the env var → defaults back to 2).
+// Defaults to creating an arena room (16-player cap built-in). For
+// larger N, start the server with MAX_PLAYERS=N to override the per-mode
+// cap — drop the env var afterwards to restore the per-mode defaults.
 //
 // Usage:
 //   WS_URL=wss://arena.example/ N=16 DURATION_S=60 node scripts/loadtest.mjs
@@ -17,6 +17,7 @@ import WebSocket from 'ws'
 //   WS_URL          target WS endpoint   (default ws://127.0.0.1:2567)
 //   N               client count         (default 16)
 //   DURATION_S      test duration in s   (default 60)
+//   MODE            'duel' | 'arena'     (default arena — 16 cap built-in)
 //   INPUT_HZ        client send rate     (default 30 — matches server tick)
 //   PING_HZ         ping send rate       (default 1)
 //   PROTOCOL_VER    protocol version     (default 4, must match server)
@@ -28,9 +29,15 @@ const N = Number(process.env.N ?? 16)
 const DURATION_S = Number(process.env.DURATION_S ?? 60)
 const INPUT_HZ = Number(process.env.INPUT_HZ ?? 30)
 const PING_HZ = Number(process.env.PING_HZ ?? 1)
-const PROTOCOL_VERSION = Number(process.env.PROTOCOL_VER ?? 5)
+const PROTOCOL_VERSION = Number(process.env.PROTOCOL_VER ?? 6)
 const NICK_PREFIX = process.env.NICK_PREFIX ?? 'LT'
 const STAGGER_MS = Number(process.env.STAGGER_MS ?? 50)
+// Mode of the room the host creates. 'arena' is the safer default for
+// load testing — duel rooms cap at 2 in normal operation and need the
+// MAX_PLAYERS env override on the server side; arena rooms cap at 16
+// out of the box, so the harness works without server-side tweaks for
+// any N ≤ 16. For larger N still set MAX_PLAYERS on the server.
+const MODE = process.env.MODE ?? 'arena'
 
 const INPUT_PERIOD_MS = 1000 / INPUT_HZ
 const PING_PERIOD_MS = 1000 / PING_HZ
@@ -107,7 +114,7 @@ class Client {
             this.welcomed = true
             this.you = m.you
             if (isHost) {
-              this.sendRaw({ t: 'createRoom' })
+              this.sendRaw({ t: 'createRoom', mode: MODE })
             }
             // joiners wait for hostRoomIdPromise
             break
@@ -301,8 +308,12 @@ function summarize(clients, durationMs) {
 }
 
 async function main() {
-  console.log(`[loadtest] target=${URL}  N=${N}  duration=${DURATION_S}s  inputHz=${INPUT_HZ}  pingHz=${PING_HZ}  protocol=v${PROTOCOL_VERSION}`)
-  console.log(`[loadtest] reminder: server must be started with MAX_PLAYERS=${N} (currently default=2 will reject joiners)`)
+  console.log(`[loadtest] target=${URL}  N=${N}  mode=${MODE}  duration=${DURATION_S}s  inputHz=${INPUT_HZ}  pingHz=${PING_HZ}  protocol=v${PROTOCOL_VERSION}`)
+  if (N > 16 && MODE === 'arena') {
+    console.log(`[loadtest] reminder: N=${N} exceeds arena's built-in cap of 16 — start the server with MAX_PLAYERS=${N} to override`)
+  } else if (N > 2 && MODE === 'duel') {
+    console.log(`[loadtest] reminder: N=${N} exceeds duel's built-in cap of 2 — start the server with MAX_PLAYERS=${N} to override`)
+  }
 
   const clients = Array.from({ length: N }, (_, i) => new Client(i))
 

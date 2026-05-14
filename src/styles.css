@@ -1129,7 +1129,7 @@ canvas { display: block; outline: none; }
 }
 .lobby-room {
   display: grid;
-  grid-template-columns: 1fr auto auto;
+  grid-template-columns: auto 1fr auto auto;
   align-items: center;
   gap: 14px;
   padding: 10px 14px;
@@ -1142,6 +1142,16 @@ canvas { display: block; outline: none; }
   cursor: pointer;
   transition: border-color 0.12s ease, background 0.12s ease;
 }
+.lobby-room-mode {
+  font-size: 10px;
+  letter-spacing: 0.25em;
+  padding: 2px 6px;
+  border: 1px solid currentColor;
+  min-width: 50px;
+  text-align: center;
+}
+.lobby-room-mode.duel  { color: #3a8aff; }
+.lobby-room-mode.arena { color: #ffaa55; }
 .lobby-room:hover:not(.disabled) {
   border-color: #3a8aff;
   background: rgba(20, 28, 48, 0.85);
