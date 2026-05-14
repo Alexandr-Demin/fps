@@ -1,7 +1,6 @@
 import { WebSocket } from 'ws'
 import { Player } from './Player.js'
 import {
-  MP_RESPAWN_MS,
   type C2S,
   type S2C,
   type GameMode,
@@ -56,6 +55,10 @@ export class Room {
     // null for modes with no match timer (duel). For arena this is the
     // 5-minute clock from MODE_CONFIG.
     public readonly matchDurationMs: number | null,
+    // Per-mode death timer. Duel keeps the long 4.5s respawn (gives the
+    // surviving player a tangible window); arena drops to ~300ms so the
+    // FFA feels continuous. Read by onHit when scheduling deadUntil.
+    public readonly respawnMs: number,
     // Called whenever the room's composition changes (join, leave, full,
     // empty) so the Lobby can push a fresh roomList to other lobby
     // connections.
@@ -302,7 +305,7 @@ export class Room {
     if (target.hp <= 0) {
       target.hp = 0
       target.alive = false
-      target.deadUntil = Date.now() + MP_RESPAWN_MS
+      target.deadUntil = Date.now() + this.respawnMs
       attacker.kills++
       target.deaths++
       this.broadcast({

@@ -285,8 +285,9 @@ export class Lobby {
     const maxPlayers = this.maxPlayersOverride ?? cfg.maxPlayers
     const id = 'r_' + ++this.nextRoomSeq
     const room = new Room(
-      id, mode, this.mapData, maxPlayers, cfg.matchDurationMs, () =>
-        this.scheduleRoomListBroadcast(),
+      id, mode, this.mapData, maxPlayers,
+      cfg.matchDurationMs, cfg.respawnMs,
+      () => this.scheduleRoomListBroadcast(),
     )
     this.rooms.set(id, room)
     room.addPlayer(conn.id, conn.nickname, conn.ws)
@@ -318,8 +319,9 @@ export class Lobby {
     const maxPlayers = this.maxPlayersOverride ?? cfg.maxPlayers
     const id = 'r_arena'
     const room = new Room(
-      id, 'arena', this.mapData, maxPlayers, cfg.matchDurationMs, () =>
-        this.scheduleRoomListBroadcast(),
+      id, 'arena', this.mapData, maxPlayers,
+      cfg.matchDurationMs, cfg.respawnMs,
+      () => this.scheduleRoomListBroadcast(),
     )
     this.rooms.set(id, room)
     console.log(
