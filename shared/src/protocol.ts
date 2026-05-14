@@ -2,7 +2,7 @@ import type { MapData } from '../../src/core/mapTypes'
 
 // Bump on any breaking protocol change. Clients with a different version
 // are rejected at hello-time.
-export const PROTOCOL_VERSION = 8
+export const PROTOCOL_VERSION = 9
 export type Vec3 = [number, number, number]
 export type PlayerId = string
 export type RoomId = string
@@ -26,6 +26,11 @@ export type GameMode = 'duel' | 'arena'
 
 export const MP_MAX_HP = 100
 export const MP_RESPAWN_MS = 4500
+
+// Post-respawn invulnerability window. Long enough to recover bearings
+// after a frantic arena respawn, short enough that it doesn't become a
+// safe-camp aura.
+export const SPAWN_PROTECTION_MS = 1500
 
 // Per-room cap. The plan calls for 2-player duel rooms; this constant lives
 // in the protocol so client UI and server logic stay in sync.
@@ -78,6 +83,11 @@ export interface PlayerSnap {
   deaths: number
   alive: boolean
   state: PlayerState
+  // True during the spawn-protection window. Server gates damage on the
+  // authoritative timer; the field is mirrored to clients so remote
+  // models can render semi-transparent / flickering and the local HUD
+  // can show a PROTECTED pill.
+  protected: boolean
 }
 
 export type C2S =

@@ -1183,6 +1183,30 @@ canvas { display: block; outline: none; }
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
 }
 
+/* Spawn-protection pill — sits just below the match clock so both bits
+   of "what's the state of my run" info live in the same eyeline. The
+   pulse animation mirrors the remote-model flicker so the local cue
+   matches what others see. */
+.hud-protected-pill {
+  position: fixed;
+  top: 46px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 4;
+  pointer-events: none;
+  padding: 3px 10px;
+  font-size: 11px;
+  letter-spacing: 0.3em;
+  color: #62f59a;
+  border: 1px solid #62f59a;
+  background: rgba(40, 80, 50, 0.4);
+  animation: protected-pulse 0.5s ease-in-out infinite alternate;
+}
+@keyframes protected-pulse {
+  from { opacity: 0.55; }
+  to   { opacity: 1.0;  }
+}
+
 /* End-of-match overlay — full-screen card with the top-5 leaderboard. */
 .end-screen {
   background: rgba(0, 0, 0, 0.7);

@@ -23,6 +23,8 @@ export function HUD() {
   // outer raf below so the displayed countdown stays smooth without
   // forcing a per-second store update.
   const matchEndsAt = useNetStore((s) => s.currentMatchEndsAt)
+  // Local-player spawn-protection mirror — drives the PROTECTED pill.
+  const myProtected = useNetStore((s) => s.myProtected)
   // In MP, always show the FPS / ping panel — ping is non-debug info
   // players want to see at a glance. SP keeps it as a debug-toggle thing.
   const isMp = phase === 'mpPlaying'
@@ -62,6 +64,9 @@ export function HUD() {
       <div className="hud">
         {countdown && (
           <div className="hud-match-clock">{countdown}</div>
+        )}
+        {isMp && myProtected && (
+          <div className="hud-protected-pill">PROTECTED</div>
         )}
         <div className="hud-top">
           <div className="hud-block">

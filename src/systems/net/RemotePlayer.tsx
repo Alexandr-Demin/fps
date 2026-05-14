@@ -1,6 +1,13 @@
 import { useEffect, useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
-import { Group, Mesh, MeshBasicMaterial, PointLight, Vector3 } from 'three'
+import {
+  Group,
+  Mesh,
+  MeshBasicMaterial,
+  MeshStandardMaterial,
+  PointLight,
+  Vector3,
+} from 'three'
 import { Billboard, Text } from '@react-three/drei'
 import {
   CapsuleCollider,
@@ -36,6 +43,7 @@ export function RemotePlayer({ snap }: { snap: PlayerSnap }) {
   const bodyRef = useRef<RapierRigidBody>(null!)
   const colliderHandleRef = useRef<number | null>(null)
   const hpFillRef = useRef<Mesh>(null!)
+  const bodyMatRef = useRef<MeshStandardMaterial>(null!)
   const flashMeshRef = useRef<Mesh>(null!)
   const flashLightRef = useRef<PointLight>(null!)
   const showHitboxes = useGameStore((s) => s.showHitboxes)
@@ -136,6 +144,20 @@ export function RemotePlayer({ snap }: { snap: PlayerSnap }) {
       hpFillRef.current.position.x = -0.35 * (1 - hpRatio)
     }
 
+    // Spawn-protection visual — semi-transparent capsule with a sub-
+    // second flicker. Opaque (opacity=1) when not protected so the
+    // material is indistinguishable from the pre-step-4.6 look.
+    if (bodyMatRef.current) {
+      if (snap.protected) {
+        const t = performance.now() / 1000
+        // 0.35..0.65 ping-pong at ~4 Hz — fast enough to read as
+        // "active" but not seizure-inducing.
+        bodyMatRef.current.opacity = 0.5 + 0.15 * Math.sin(t * Math.PI * 4)
+      } else {
+        bodyMatRef.current.opacity = 1
+      }
+    }
+
     // Muzzle flash decay — driven by the timestamp NetClient writes on
     // `shotFired`. Mirrors the local ViewModel flash duration so SP/MP
     // visuals match.
@@ -184,7 +206,14 @@ export function RemotePlayer({ snap }: { snap: PlayerSnap }) {
         <group ref={poseRef}>
           <mesh castShadow>
             <capsuleGeometry args={[PLAYER.RADIUS, PLAYER.HEIGHT - PLAYER.RADIUS * 2, 6, 12]} />
-            <meshStandardMaterial color="#3a8aff" roughness={0.6} metalness={0.2} />
+            <meshStandardMaterial
+              ref={bodyMatRef}
+              color="#3a8aff"
+              roughness={0.6}
+              metalness={0.2}
+              transparent
+              opacity={1}
+            />
           </mesh>
 
           {/* Muzzle flash — opacity/intensity driven by useFrame above. Sits

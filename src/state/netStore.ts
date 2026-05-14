@@ -56,6 +56,9 @@ interface NetState {
   // Final top-5 leaderboard set by the matchEnded event. Cleared on
   // join / leave. The MpEndScreen renders this.
   currentMatchResults: MatchResult[] | null
+  // Mirrors the server's spawn-protection state for the local player.
+  // Updated from every snapshot. Drives the PROTECTED HUD pill.
+  myProtected: boolean
   // Round-trip latency in milliseconds, refreshed on each pong reply.
   // null when not connected (or before the first pong lands).
   rttMs: number | null
@@ -77,6 +80,7 @@ interface NetState {
   setRoomPhase: (p: RoomPhase) => void
   setMatchEndsAt: (ms: number | null) => void
   setMatchResults: (r: MatchResult[] | null) => void
+  setMyProtected: (v: boolean) => void
   setReconnect: (state: {
     reconnecting: boolean
     attempt: number
@@ -119,6 +123,7 @@ export const useNetStore = create<NetState>((set) => ({
   currentRoomPhase: 'playing',
   currentMatchEndsAt: null,
   currentMatchResults: null,
+  myProtected: false,
   rttMs: null,
   reconnecting: false,
   reconnectAttempt: 0,
@@ -141,6 +146,7 @@ export const useNetStore = create<NetState>((set) => ({
   setRoomPhase: (p) => set({ currentRoomPhase: p }),
   setMatchEndsAt: (ms) => set({ currentMatchEndsAt: ms }),
   setMatchResults: (r) => set({ currentMatchResults: r }),
+  setMyProtected: (v) => set({ myProtected: v }),
   setReconnect: ({ reconnecting, attempt, max }) =>
     set({
       reconnecting,

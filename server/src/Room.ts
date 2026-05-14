@@ -297,6 +297,10 @@ export class Room {
     const target = this.players.get(targetId)
     if (!target || !target.alive) return
     if (target === attacker) return // self-damage disabled
+    // Spawn protection: damage silently dropped while the window is
+    // open. Clients render the target with a flicker so the shooter
+    // sees why their bullets didn't bite.
+    if (Date.now() < target.spawnProtectedUntil) return
 
     const amount = Math.max(0, Math.min(MAX_DAMAGE_PER_HIT, Math.floor(damage)))
     if (amount === 0) return
@@ -338,6 +342,7 @@ export class Room {
       deaths: p.deaths,
       alive: p.alive,
       state: p.state,
+      protected: Date.now() < p.spawnProtectedUntil,
     }
   }
 

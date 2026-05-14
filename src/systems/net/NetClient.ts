@@ -330,6 +330,10 @@ class NetClientImpl {
         // HUD drift across reconnects.
         useNetStore.getState().setMatchEndsAt(msg.matchEndsAt)
         useNetStore.getState().setRoomPhase(msg.phase)
+        // Pull the local player's spawn-protection flag out of the
+        // snapshot so the HUD pill stays in sync with the server.
+        const mySnap = myId ? msg.players.find((p) => p.id === myId) : null
+        useNetStore.getState().setMyProtected(!!mySnap?.protected)
         break
       }
       case 'matchEnded': {
