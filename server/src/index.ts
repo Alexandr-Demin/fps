@@ -132,12 +132,59 @@ async function main() {
   wss.on('connection', (ws) => lobby.onConnection(ws))
   wss.on('error', (err) => console.error('[server] wss error:', err))
 
-  const interval = setInterval(() => lobby.tick(), 1000 / TICK_RATE)
+  // Tick-time perf logger. Warn-line on any tick > SLOW_TICK_MS so a single
+  // GC pause or stall is obvious; sliding-window summary every PERF_WINDOW_MS
+  // so we can see the steady-state distribution without grepping. Disable by
+  // setting PERF_LOG=0 to silence the noise on prod once stable.
+  const PERF_LOG = process.env.PERF_LOG !== '0'
+  const SLOW_TICK_MS = Number(process.env.SLOW_TICK_MS ?? 50)
+  const PERF_WINDOW_MS = Number(process.env.PERF_WINDOW_MS ?? 10_000)
+  const tickSamples: number[] = []
+  let windowStart = Date.now()
+
+  function flushPerfWindow() {
+    if (tickSamples.length === 0) return
+    const sorted = [...tickSamples].sort((a, b) => a - b)
+    const n = sorted.length
+    const q = (p: number) => sorted[Math.min(n - 1, Math.floor(p * n))]
+    const mean = sorted.reduce((a, b) => a + b, 0) / n
+    const { rooms, players, connections } = lobby.stats()
+    console.log(
+      `[perf] window=${((Date.now() - windowStart) / 1000).toFixed(1)}s ` +
+      `ticks=${n} conns=${connections} rooms=${rooms} players=${players}  ` +
+      `tick(ms): mean=${mean.toFixed(1)} p50=${q(0.5).toFixed(1)} ` +
+      `p95=${q(0.95).toFixed(1)} p99=${q(0.99).toFixed(1)} ` +
+      `max=${sorted[n - 1].toFixed(1)}`
+    )
+    tickSamples.length = 0
+    windowStart = Date.now()
+  }
+
+  const interval = setInterval(() => {
+    const t0 = performance.now()
+    try {
+      lobby.tick()
+    } catch (e) {
+      console.error('[server] tick threw:', e)
+    }
+    const dt = performance.now() - t0
+    if (PERF_LOG) {
+      tickSamples.push(dt)
+      if (dt > SLOW_TICK_MS) {
+        const { players, rooms } = lobby.stats()
+        console.warn(
+          `[perf] SLOW tick: ${dt.toFixed(1)}ms (rooms=${rooms} players=${players})`
+        )
+      }
+      if (Date.now() - windowStart >= PERF_WINDOW_MS) flushPerfWindow()
+    }
+  }, 1000 / TICK_RATE)
 
   httpServer.listen(PORT, () => {
     console.log(
       `[server] listening on ${PORT} — http + ws on same port, ` +
-      `map=${MAP_ID}, tick=${TICK_RATE}Hz, maxPerRoom=${MAX_PLAYERS}`
+      `map=${MAP_ID}, tick=${TICK_RATE}Hz, maxPerRoom=${MAX_PLAYERS}, ` +
+      `perfLog=${PERF_LOG ? 'on' : 'off'} (slow>${SLOW_TICK_MS}ms)`
     )
   })
 

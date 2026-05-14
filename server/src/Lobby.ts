@@ -110,6 +110,20 @@ export class Lobby {
   }
 
   /**
+   * Aggregate counts for the perf logger in index.ts — kept as a method
+   * rather than exposing the private maps directly.
+   */
+  stats(): { rooms: number; players: number; connections: number } {
+    let players = 0
+    for (const r of this.rooms.values()) players += r.count
+    return {
+      rooms: this.rooms.size,
+      players,
+      connections: this.connections.size,
+    }
+  }
+
+  /**
    * Per-tick advance for every active room. Called from index.ts at
    * TICK_RATE Hz. Empty rooms are pruned here so a flap of join → leave
    * doesn't leave zombie rooms behind.
