@@ -114,29 +114,38 @@ export const HITBOX = {
 }
 
 // Crouch / slide hitbox table — same multipliers and visual sizes as the
-// standing table, but every Y boundary shifts down by CROUCH_VISUAL_Y_SHIFT
-// to match the lower visible silhouette. Selected by Weapon.tsx when the
-// target's state is 'crouching' or 'sliding', so headshots on a crouching
-// opponent require aiming at where their head actually is, not where it
-// would be if they were standing.
+// standing table, but every Y boundary is the standing value put through
+// the same scale-then-shift the visual capsule undergoes:
+//     y_crouch = CROUCH_VISUAL_SCALE * y_stand + CROUCH_VISUAL_Y_SHIFT
+//              = 0.6 * y_stand - 0.36
+// (NOT just y_stand - shift — the squash matters too, otherwise headshots
+// on a crouched player still resolve as torso because the head zone
+// covers an unreachable air-band above the silhouette.) Selected by
+// Weapon.tsx when the target's state is 'crouching' or 'sliding', so
+// headshots require aiming where the head actually is.
 export const HITBOX_CROUCH = {
   HEAD: {
-    center: [0, 0.34, 0] as const,
-    size:   [0.50, 0.42, 0.46] as const,
+    // center.y = 0.6 * 0.70 - 0.36 = 0.06
+    center: [0, 0.06, 0] as const,
+    size:   [0.50, 0.252, 0.46] as const,
     color: '#ff3030',
     multiplier: 2.0,
-    yMin: 0.13,
+    // yMin = 0.6 * 0.49 - 0.36 = -0.066
+    yMin: -0.066,
   },
   TORSO: {
-    center: [0, -0.20, 0] as const,
-    size:   [0.72, 0.66, 0.52] as const,
+    // center.y = 0.6 * 0.16 - 0.36 = -0.264
+    center: [0, -0.264, 0] as const,
+    size:   [0.72, 0.396, 0.52] as const,
     color: '#48c8ff',
     multiplier: 1.0,
-    yMin: -0.53,
+    // yMin = 0.6 * -0.17 - 0.36 = -0.462
+    yMin: -0.462,
   },
   LEGS: {
-    center: [0, -0.86, 0] as const,
-    size:   [0.58, 0.78, 0.46] as const,
+    // center.y = 0.6 * -0.50 - 0.36 = -0.66
+    center: [0, -0.66, 0] as const,
+    size:   [0.58, 0.468, 0.46] as const,
     color: '#62f59a',
     multiplier: 0.7,
     yMin: -Infinity,

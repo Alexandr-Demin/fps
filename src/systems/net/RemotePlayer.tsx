@@ -214,33 +214,36 @@ export function RemotePlayer({ snap }: { snap: PlayerSnap }) {
             decay={2}
           />
 
-          {/* Debug hitbox wireframes — toggled from settings dialog. The
-              table flips to HITBOX_CROUCH when the remote is crouched or
-              sliding so the boxes match the Weapon-side hit resolution. */}
-          {showHitboxes && (() => {
-            const table =
-              snap.state === 'crouching' || snap.state === 'sliding'
-                ? HITBOX_CROUCH
-                : HITBOX
-            return (
-              <group>
-                {[table.HEAD, table.TORSO, table.LEGS].map((zone, i) => (
-                  <mesh key={i} position={zone.center as unknown as [number, number, number]}>
-                    <boxGeometry args={zone.size as unknown as [number, number, number]} />
-                    <meshBasicMaterial
-                      color={zone.color}
-                      wireframe
-                      transparent
-                      opacity={0.75}
-                      depthTest={false}
-                      toneMapped={false}
-                    />
-                  </mesh>
-                ))}
-              </group>
-            )
-          })()}
         </group>
+
+        {/* Debug hitbox wireframes — sit outside poseRef so the centers/
+            sizes in HITBOX_CROUCH (which already encode the squash-and-
+            shift in world-frame terms) aren't double-applied by the
+            parent transform. The table flips by state so the boxes
+            mirror what Weapon.tsx uses to resolve a hit. */}
+        {showHitboxes && (() => {
+          const table =
+            snap.state === 'crouching' || snap.state === 'sliding'
+              ? HITBOX_CROUCH
+              : HITBOX
+          return (
+            <group>
+              {[table.HEAD, table.TORSO, table.LEGS].map((zone, i) => (
+                <mesh key={i} position={zone.center as unknown as [number, number, number]}>
+                  <boxGeometry args={zone.size as unknown as [number, number, number]} />
+                  <meshBasicMaterial
+                    color={zone.color}
+                    wireframe
+                    transparent
+                    opacity={0.75}
+                    depthTest={false}
+                    toneMapped={false}
+                  />
+                </mesh>
+              ))}
+            </group>
+          )
+        })()}
 
         {/* Nickname — sits outside poseRef so it follows the silhouette top
             (dropped via nicknameRef.position.y in useFrame) without being
