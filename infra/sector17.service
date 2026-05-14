@@ -1,0 +1,44 @@
+[Unit]
+Description=Sector-17 multiplayer server (http + ws on the same port)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=sector
+Group=sector
+WorkingDirectory=/home/sector/fps
+
+# Tunables — change here and `systemctl daemon-reload && restart`.
+Environment=NODE_ENV=production
+Environment=PORT=2567
+Environment=TICK_RATE=30
+Environment=MAX_PLAYERS=2
+Environment=MAP_ID=aim_duel
+# Turn on for a session when investigating reported freezes:
+#   sudo systemctl set-environment PERF_LOG=1
+#   sudo systemctl restart sector17
+Environment=PERF_LOG=0
+
+# `npm run start` runs `tsc -b && vite build && tsx server/src/index.ts`.
+# Building on a restart is intentional — `git pull` + restart picks up new
+# code without a separate build step. If you want to skip the build (the
+# repo has been prebuilt), swap this for the `tsx` line below.
+ExecStart=/usr/bin/npm run start
+# ExecStart=/usr/bin/npx tsx server/src/index.ts
+
+Restart=always
+RestartSec=2
+
+# Quality-of-life sandboxing. Keeps the service self-contained without
+# blocking npm/git from doing what it needs to.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=false
+
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
