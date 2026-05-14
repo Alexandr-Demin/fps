@@ -9,7 +9,7 @@ import {
 } from '@react-three/rapier'
 import type { PlayerSnap } from '@shared/protocol'
 import { MP_MAX_HP } from '@shared/protocol'
-import { HITBOX, PLAYER } from '../../core/constants'
+import { HITBOX, HITBOX_CROUCH, PLAYER, REMOTE_POSE } from '../../core/constants'
 import { useGameStore } from '../../state/gameStore'
 import {
   registerRemotePlayerCollider,
@@ -30,6 +30,9 @@ export function triggerRemoteMuzzleFlash(playerId: string) {
 
 export function RemotePlayer({ snap }: { snap: PlayerSnap }) {
   const visualRef = useRef<Group>(null!)
+  const poseRef = useRef<Group>(null!)
+  const nicknameRef = useRef<Group>(null!)
+  const hpbarRef = useRef<Group>(null!)
   const bodyRef = useRef<RapierRigidBody>(null!)
   const colliderHandleRef = useRef<number | null>(null)
   const hpFillRef = useRef<Mesh>(null!)
@@ -39,6 +42,14 @@ export function RemotePlayer({ snap }: { snap: PlayerSnap }) {
 
   const target = useRef(new Vector3(snap.pos[0], snap.pos[1], snap.pos[2]))
   const yawTarget = useRef(snap.yaw)
+  // Capsule top in world-space depends on the current pose. Used to keep
+  // the nickname / HP bar billboards just above the visible silhouette
+  // when the target crouches.
+  const NAMETAG_STAND_Y = PLAYER.HEIGHT * 0.5 + 0.25
+  const NAMETAG_CROUCH_Y =
+    PLAYER.HEIGHT * 0.5 * REMOTE_POSE.CROUCH_VISUAL_SCALE +
+    REMOTE_POSE.CROUCH_VISUAL_Y_SHIFT +
+    0.25
 
   // Refresh interpolation targets each render (props change every snapshot)
   target.current.set(snap.pos[0], snap.pos[1], snap.pos[2])
@@ -89,6 +100,36 @@ export function RemotePlayer({ snap }: { snap: PlayerSnap }) {
       bodyRef.current.setNextKinematicTranslation({ x: p.x, y: p.y, z: p.z })
     }
 
+    // Pose lerp — squash + drop the inner pose group when the remote is
+    // crouching or sliding, tilt forward additionally while sliding. Feet
+    // stay on the ground because Y_SHIFT mirrors the height loss.
+    const pose = poseRef.current
+    if (pose) {
+      const crouched = snap.state === 'crouching' || snap.state === 'sliding'
+      const targetScaleY = crouched ? REMOTE_POSE.CROUCH_VISUAL_SCALE : 1
+      const targetPosY = crouched ? REMOTE_POSE.CROUCH_VISUAL_Y_SHIFT : 0
+      const targetTilt = snap.state === 'sliding' ? -REMOTE_POSE.SLIDE_TILT : 0
+      const pk = Math.min(1, dt * REMOTE_POSE.POSE_LERP_RATE)
+      pose.scale.y += (targetScaleY - pose.scale.y) * pk
+      pose.position.y += (targetPosY - pose.position.y) * pk
+      pose.rotation.x += (targetTilt - pose.rotation.x) * pk
+    }
+
+    // Drop the nickname / HP bar with the pose so they don't float above
+    // an obviously-crouched silhouette.
+    const crouched = snap.state === 'crouching' || snap.state === 'sliding'
+    const targetNickY = crouched ? NAMETAG_CROUCH_Y : NAMETAG_STAND_Y
+    const targetHpY = targetNickY + 0.30
+    const pk = Math.min(1, dt * REMOTE_POSE.POSE_LERP_RATE)
+    if (nicknameRef.current) {
+      nicknameRef.current.position.y +=
+        (targetNickY - nicknameRef.current.position.y) * pk
+    }
+    if (hpbarRef.current) {
+      hpbarRef.current.position.y +=
+        (targetHpY - hpbarRef.current.position.y) * pk
+    }
+
     // HP fill: scale from left edge (matches Bot's HP-bar convention).
     if (hpFillRef.current) {
       hpFillRef.current.scale.x = hpRatio
@@ -136,100 +177,118 @@ export function RemotePlayer({ snap }: { snap: PlayerSnap }) {
       </RigidBody>
 
       <group ref={visualRef} position={snap.pos}>
-        <mesh castShadow>
-          <capsuleGeometry args={[PLAYER.RADIUS, PLAYER.HEIGHT - PLAYER.RADIUS * 2, 6, 12]} />
-          <meshStandardMaterial color="#3a8aff" roughness={0.6} metalness={0.2} />
-        </mesh>
+        {/* Pose-driven inner group — squashed, dropped and (for slide)
+            tilted by useFrame based on snap.state. Capsule, muzzle flash
+            and hitbox-debug all live here so the visual silhouette and
+            the debug zones stay in sync. */}
+        <group ref={poseRef}>
+          <mesh castShadow>
+            <capsuleGeometry args={[PLAYER.RADIUS, PLAYER.HEIGHT - PLAYER.RADIUS * 2, 6, 12]} />
+            <meshStandardMaterial color="#3a8aff" roughness={0.6} metalness={0.2} />
+          </mesh>
 
-        {/* Muzzle flash — opacity/intensity driven by useFrame above. Sits
-            in front of the capsule at hand height; the parent group's
-            rotation.y matches the player's yaw so the flash points where
-            they're aiming. */}
-        <mesh
-          ref={flashMeshRef}
-          position={[0.18, 0.05, -0.45]}
-          renderOrder={1001}
-        >
-          <planeGeometry args={[0.28, 0.28]} />
-          <meshBasicMaterial
-            color="#ffb070"
-            transparent
-            opacity={0}
-            depthWrite={false}
-            toneMapped={false}
-          />
-        </mesh>
-        <pointLight
-          ref={flashLightRef}
-          position={[0.18, 0.05, -0.45]}
-          intensity={0}
-          distance={4}
-          color="#ffaa66"
-          decay={2}
-        />
-
-        {/* Debug hitbox wireframes — toggled from settings dialog. Mirrors
-            the Bot.tsx debug overlay (same HITBOX table, same Y convention
-            relative to body center). */}
-        {showHitboxes && (
-          <group>
-            {[HITBOX.HEAD, HITBOX.TORSO, HITBOX.LEGS].map((zone, i) => (
-              <mesh key={i} position={zone.center as unknown as [number, number, number]}>
-                <boxGeometry args={zone.size as unknown as [number, number, number]} />
-                <meshBasicMaterial
-                  color={zone.color}
-                  wireframe
-                  transparent
-                  opacity={0.75}
-                  depthTest={false}
-                  toneMapped={false}
-                />
-              </mesh>
-            ))}
-          </group>
-        )}
-
-        {/* Nickname */}
-        <Billboard position={[0, PLAYER.HEIGHT * 0.5 + 0.25, 0]}>
-          <Text
-            fontSize={0.22}
-            color="#ffffff"
-            anchorX="center"
-            anchorY="middle"
-            outlineWidth={0.02}
-            outlineColor="#000000"
+          {/* Muzzle flash — opacity/intensity driven by useFrame above. Sits
+              in front of the capsule at hand height; the parent group's
+              rotation.y matches the player's yaw so the flash points where
+              they're aiming. */}
+          <mesh
+            ref={flashMeshRef}
+            position={[0.18, 0.05, -0.45]}
+            renderOrder={1001}
           >
-            {snap.nickname}
-          </Text>
-        </Billboard>
-
-        {/* HP bar above nickname */}
-        <Billboard position={[0, PLAYER.HEIGHT * 0.5 + 0.55, 0]}>
-          {/* Background */}
-          <mesh position={[0, 0, -0.002]} renderOrder={10}>
-            <planeGeometry args={[0.78, 0.12]} />
+            <planeGeometry args={[0.28, 0.28]} />
             <meshBasicMaterial
-              color="#000"
+              color="#ffb070"
               transparent
-              opacity={0.75}
-              depthTest={false}
-            />
-          </mesh>
-          {/* Track */}
-          <mesh position={[0, 0, -0.001]} renderOrder={11}>
-            <planeGeometry args={[0.7, 0.06]} />
-            <meshBasicMaterial color="#2a2d33" depthTest={false} />
-          </mesh>
-          {/* Fill — scaled in useFrame */}
-          <mesh ref={hpFillRef} position={[0, 0, 0]} renderOrder={12}>
-            <planeGeometry args={[0.7, 0.06]} />
-            <meshBasicMaterial
-              color={hpLow ? '#ff3030' : '#dfe6f0'}
-              depthTest={false}
+              opacity={0}
+              depthWrite={false}
               toneMapped={false}
             />
           </mesh>
-        </Billboard>
+          <pointLight
+            ref={flashLightRef}
+            position={[0.18, 0.05, -0.45]}
+            intensity={0}
+            distance={4}
+            color="#ffaa66"
+            decay={2}
+          />
+
+          {/* Debug hitbox wireframes — toggled from settings dialog. The
+              table flips to HITBOX_CROUCH when the remote is crouched or
+              sliding so the boxes match the Weapon-side hit resolution. */}
+          {showHitboxes && (() => {
+            const table =
+              snap.state === 'crouching' || snap.state === 'sliding'
+                ? HITBOX_CROUCH
+                : HITBOX
+            return (
+              <group>
+                {[table.HEAD, table.TORSO, table.LEGS].map((zone, i) => (
+                  <mesh key={i} position={zone.center as unknown as [number, number, number]}>
+                    <boxGeometry args={zone.size as unknown as [number, number, number]} />
+                    <meshBasicMaterial
+                      color={zone.color}
+                      wireframe
+                      transparent
+                      opacity={0.75}
+                      depthTest={false}
+                      toneMapped={false}
+                    />
+                  </mesh>
+                ))}
+              </group>
+            )
+          })()}
+        </group>
+
+        {/* Nickname — sits outside poseRef so it follows the silhouette top
+            (dropped via nicknameRef.position.y in useFrame) without being
+            tilted by the slide pose. */}
+        <group ref={nicknameRef} position={[0, NAMETAG_STAND_Y, 0]}>
+          <Billboard>
+            <Text
+              fontSize={0.22}
+              color="#ffffff"
+              anchorX="center"
+              anchorY="middle"
+              outlineWidth={0.02}
+              outlineColor="#000000"
+            >
+              {snap.nickname}
+            </Text>
+          </Billboard>
+        </group>
+
+        {/* HP bar above nickname */}
+        <group ref={hpbarRef} position={[0, NAMETAG_STAND_Y + 0.30, 0]}>
+          <Billboard>
+            {/* Background */}
+            <mesh position={[0, 0, -0.002]} renderOrder={10}>
+              <planeGeometry args={[0.78, 0.12]} />
+              <meshBasicMaterial
+                color="#000"
+                transparent
+                opacity={0.75}
+                depthTest={false}
+              />
+            </mesh>
+            {/* Track */}
+            <mesh position={[0, 0, -0.001]} renderOrder={11}>
+              <planeGeometry args={[0.7, 0.06]} />
+              <meshBasicMaterial color="#2a2d33" depthTest={false} />
+            </mesh>
+            {/* Fill — scaled in useFrame */}
+            <mesh ref={hpFillRef} position={[0, 0, 0]} renderOrder={12}>
+              <planeGeometry args={[0.7, 0.06]} />
+              <meshBasicMaterial
+                color={hpLow ? '#ff3030' : '#dfe6f0'}
+                depthTest={false}
+                toneMapped={false}
+              />
+            </mesh>
+          </Billboard>
+        </group>
       </group>
     </>
   )

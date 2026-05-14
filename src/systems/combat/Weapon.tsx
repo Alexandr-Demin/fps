@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
 import { useRapier } from '@react-three/rapier'
 import { Group, Mesh, Quaternion, Vector3 } from 'three'
-import { CAMERA, HITBOX, WEAPON } from '../../core/constants'
+import { CAMERA, HITBOX, HITBOX_CROUCH, WEAPON } from '../../core/constants'
 import { Input } from '../input/input'
 import { useGameStore } from '../../state/gameStore'
 import { castHitscan } from './hitscan'
@@ -125,20 +125,26 @@ export function Weapon() {
       if (hit.isRemotePlayer && hit.remotePlayerId) {
         // Resolve the hit zone by comparing the impact-point's Y to the
         // remote player's body center (mirrors the bot HITBOX logic so
-        // damage values are consistent across SP and MP).
+        // damage values are consistent across SP and MP). Crouching and
+        // sliding targets use the shifted-down HITBOX_CROUCH table so the
+        // zones agree with the lowered visual capsule.
         const remote = useNetStore.getState().remotePlayers[hit.remotePlayerId]
         let multiplier = HITBOX.TORSO.multiplier
         let zone: HitZone = 'torso'
         if (remote) {
+          const table =
+            remote.state === 'crouching' || remote.state === 'sliding'
+              ? HITBOX_CROUCH
+              : HITBOX
           const dy = hit.point.y - remote.pos[1]
-          if (dy >= HITBOX.HEAD.yMin) {
-            multiplier = HITBOX.HEAD.multiplier
+          if (dy >= table.HEAD.yMin) {
+            multiplier = table.HEAD.multiplier
             zone = 'head'
-          } else if (dy >= HITBOX.TORSO.yMin) {
-            multiplier = HITBOX.TORSO.multiplier
+          } else if (dy >= table.TORSO.yMin) {
+            multiplier = table.TORSO.multiplier
             zone = 'torso'
           } else {
-            multiplier = HITBOX.LEGS.multiplier
+            multiplier = table.LEGS.multiplier
             zone = 'legs'
           }
         }

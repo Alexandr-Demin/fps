@@ -113,6 +113,55 @@ export const HITBOX = {
   },
 }
 
+// Crouch / slide hitbox table — same multipliers and visual sizes as the
+// standing table, but every Y boundary shifts down by CROUCH_VISUAL_Y_SHIFT
+// to match the lower visible silhouette. Selected by Weapon.tsx when the
+// target's state is 'crouching' or 'sliding', so headshots on a crouching
+// opponent require aiming at where their head actually is, not where it
+// would be if they were standing.
+export const HITBOX_CROUCH = {
+  HEAD: {
+    center: [0, 0.34, 0] as const,
+    size:   [0.50, 0.42, 0.46] as const,
+    color: '#ff3030',
+    multiplier: 2.0,
+    yMin: 0.13,
+  },
+  TORSO: {
+    center: [0, -0.20, 0] as const,
+    size:   [0.72, 0.66, 0.52] as const,
+    color: '#48c8ff',
+    multiplier: 1.0,
+    yMin: -0.53,
+  },
+  LEGS: {
+    center: [0, -0.86, 0] as const,
+    size:   [0.58, 0.78, 0.46] as const,
+    color: '#62f59a',
+    multiplier: 0.7,
+    yMin: -Infinity,
+  },
+}
+
+// Remote-model pose tweaks driven by snap.state. The visual capsule keeps
+// the same world-space ground reference — we squash by CROUCH_VISUAL_SCALE
+// and offset DOWN by CROUCH_VISUAL_Y_SHIFT so the feet stay put. The
+// HITBOX_CROUCH yMin values mirror this offset so visual and hit zones
+// agree.
+export const REMOTE_POSE = {
+  CROUCH_VISUAL_SCALE: 0.6,
+  CROUCH_VISUAL_Y_SHIFT: -0.36,
+  // Forward tilt while sliding (radians). Applied as -rotation.x on the
+  // already-yaw-rotated parent, so the player tips toward where they're
+  // looking — gives the slide a distinct silhouette without breaking the
+  // simple capsule shape.
+  SLIDE_TILT: Math.PI / 6,
+  // How fast the pose lerps toward the target. Higher = snappier; at 12
+  // a stand→crouch transition resolves in ~250ms which matches the local
+  // PlayerController eye-height lerp closely enough.
+  POSE_LERP_RATE: 12,
+}
+
 export const BOT = {
   HEIGHT: 1.8,
   RADIUS: 0.4,
