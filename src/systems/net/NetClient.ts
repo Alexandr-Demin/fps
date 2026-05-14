@@ -280,6 +280,7 @@ class NetClientImpl {
         useNetStore.getState().setRoomPhase(msg.phase)
         useNetStore.getState().setMatchEndsAt(msg.matchEndsAt)
         useNetStore.getState().setMatchResults(null)
+        useNetStore.getState().clearKillFeed()
         useGameStore.getState().setCurrentMap(msg.map)
         useGameStore.getState().startMatch()
         useGameStore.getState().setPhase('mpPlaying')
@@ -296,6 +297,7 @@ class NetClientImpl {
         useNetStore.getState().setRoomPhase('playing')
         useNetStore.getState().setMatchEndsAt(null)
         useNetStore.getState().setMatchResults(null)
+        useNetStore.getState().clearKillFeed()
         useNetStore.getState().clearRemotes()
         useNetStore.getState().setRooms(msg.rooms)
         useNetStore.getState().setPhase('lobby')
@@ -364,6 +366,10 @@ class NetClientImpl {
         break
       }
       case 'died': {
+        // Append to the kill feed regardless of whether we're the
+        // attacker, the victim, or just a bystander. The UI resolves
+        // names at render time off the current snapshot.
+        useNetStore.getState().addKillFeedEntry(msg.attacker, msg.target)
         if (msg.target === this.myId) {
           const remaining = Math.max(0, (msg.respawnAt - Date.now()) / 1000)
           useGameStore.setState((s) => ({

@@ -2,10 +2,22 @@ import { create } from 'zustand'
 import type {
   GameMode,
   MatchResult,
+  PlayerId,
   PlayerSnap,
   RoomPhase,
   RoomSummary,
 } from '@shared/protocol'
+
+// One row in the top-right kill feed. The names/isBot flags are
+// resolved at render-time against the latest remotePlayers / myId so
+// the feed doesn't carry stale snapshots.
+export interface KillFeedEntry {
+  id: number
+  attackerId: PlayerId
+  victimId: PlayerId
+  // performance.now() / 1000 — used for the fade-out timer.
+  ts: number
+}
 
 const NICKNAME_KEY = 'sector17.nickname'
 
@@ -59,6 +71,10 @@ interface NetState {
   // Mirrors the server's spawn-protection state for the local player.
   // Updated from every snapshot. Drives the PROTECTED HUD pill.
   myProtected: boolean
+  // Recent kill events for the top-right kill feed. Trimmed to the
+  // last 5 entries; the UI tags each by `ts` and fades them out on
+  // its own raf clock.
+  killFeed: KillFeedEntry[]
   // Round-trip latency in milliseconds, refreshed on each pong reply.
   // null when not connected (or before the first pong lands).
   rttMs: number | null
@@ -81,6 +97,8 @@ interface NetState {
   setMatchEndsAt: (ms: number | null) => void
   setMatchResults: (r: MatchResult[] | null) => void
   setMyProtected: (v: boolean) => void
+  addKillFeedEntry: (attackerId: PlayerId, victimId: PlayerId) => void
+  clearKillFeed: () => void
   setReconnect: (state: {
     reconnecting: boolean
     attempt: number
@@ -124,6 +142,7 @@ export const useNetStore = create<NetState>((set) => ({
   currentMatchEndsAt: null,
   currentMatchResults: null,
   myProtected: false,
+  killFeed: [],
   rttMs: null,
   reconnecting: false,
   reconnectAttempt: 0,
@@ -147,6 +166,19 @@ export const useNetStore = create<NetState>((set) => ({
   setMatchEndsAt: (ms) => set({ currentMatchEndsAt: ms }),
   setMatchResults: (r) => set({ currentMatchResults: r }),
   setMyProtected: (v) => set({ myProtected: v }),
+  addKillFeedEntry: (attackerId, victimId) =>
+    set((s) => {
+      const id = (s.killFeed[0]?.id ?? 0) + 1
+      const entry: KillFeedEntry = {
+        id,
+        attackerId,
+        victimId,
+        ts: performance.now() / 1000,
+      }
+      // Newest first, keep last 5.
+      return { killFeed: [entry, ...s.killFeed].slice(0, 5) }
+    }),
+  clearKillFeed: () => set({ killFeed: [] }),
   setReconnect: ({ reconnecting, attempt, max }) =>
     set({
       reconnecting,

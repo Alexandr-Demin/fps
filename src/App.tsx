@@ -17,6 +17,7 @@ import { MultiplayerConnect } from './ui/MultiplayerConnect'
 import { MpLobby } from './ui/MpLobby'
 import { MpReconnect } from './ui/MpReconnect'
 import { MpScoreboard } from './ui/MpScoreboard'
+import { KillFeed } from './ui/KillFeed'
 
 export function App() {
   const canvasContainerRef = useRef<HTMLDivElement>(null)
@@ -168,6 +169,7 @@ export function App() {
       </Canvas>
 
       {(phase === 'playing' || phase === 'mpPlaying') && <HUD />}
+      <KillFeed />
       <MpScoreboard />
       <MainMenu />
       <LevelSelect />
