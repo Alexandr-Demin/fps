@@ -5,14 +5,21 @@ import {
   type C2S,
   type S2C,
   type GameMode,
+  type MatchResult,
   type PlayerSnap,
   type Vec3,
   type MapData,
   type PlayerId,
   type RoomId,
+  type RoomPhase,
   type RoomState,
   type RoomSummary,
 } from '../../shared/src/protocol.js'
+
+// How long the end-screen overlay stays up before the server evicts
+// players back to the lobby. Keep it short — long enough to read the
+// top-5, short enough that nobody's stuck staring at a results board.
+const ENDED_HOLD_MS = 10_000
 
 // Defensive cap on a single client-reported hit. Real anti-cheat will come
 // later; this is just a sanity bound so a typo / glitched packet can't reset
@@ -31,11 +38,24 @@ export class Room {
   private tickCount = 0
   private spawns: Vec3[]
 
+  // Match-state machine. 'playing' from creation; flips to 'ended' when
+  // the clock runs out (modes with a timer only), and back to 'playing'
+  // on resetMatch() once the lobby has evicted the previous players.
+  phase: RoomPhase = 'playing'
+  // Epoch ms when the current match ends. null = no timer (duel).
+  matchEndsAt: number | null = null
+  // Epoch ms when phase flipped to 'ended'. Used to gate the eviction
+  // window. 0 while phase === 'playing'.
+  endedAt = 0
+
   constructor(
     public readonly id: RoomId,
     public readonly mode: GameMode,
     public readonly mapData: MapData,
     public readonly maxPlayers: number,
+    // null for modes with no match timer (duel). For arena this is the
+    // 5-minute clock from MODE_CONFIG.
+    public readonly matchDurationMs: number | null,
     // Called whenever the room's composition changes (join, leave, full,
     // empty) so the Lobby can push a fresh roomList to other lobby
     // connections.
@@ -45,6 +65,12 @@ export class Room {
       .filter((e: { kind: string }) => e.kind === 'playerSpawn')
       .map((e: { pos: Vec3 }) => e.pos as Vec3)
     if (this.spawns.length === 0) this.spawns.push([0, 2.5, 0])
+    // Start the match clock immediately. Per the 4.4 plan we don't
+    // gate match-start on having ≥2 players — that's a 4.7 concern
+    // once bots can fill an empty arena.
+    if (this.matchDurationMs != null) {
+      this.matchEndsAt = Date.now() + this.matchDurationMs
+    }
   }
 
   get count(): number {
@@ -77,6 +103,7 @@ export class Room {
       max: this.maxPlayers,
       state: this.state,
       mode: this.mode,
+      phase: this.phase,
       playerNames,
     }
   }
@@ -106,6 +133,8 @@ export class Room {
       map: this.mapData,
       tick: this.tickCount,
       players: playerList,
+      phase: this.phase,
+      matchEndsAt: this.matchEndsAt,
     })
 
     // Notify existing players (everyone except the joiner).
@@ -150,10 +179,14 @@ export class Room {
         this.send(player.ws, { t: 'pong', ts: m.ts })
         break
       case 'hit':
+        // Hits are silently dropped between matches — the end-screen is
+        // showing, neither attacker nor target should be taking damage.
+        if (this.phase !== 'playing') break
         this.onHit(player, m.target, m.damage, m.zone)
         break
       case 'shoot':
         if (!player.alive) break
+        if (this.phase !== 'playing') break
         this.broadcast(
           { t: 'shotFired', shooter: player.id, origin: m.origin, dir: m.dir },
           player.ws,
@@ -166,18 +199,89 @@ export class Room {
   tick() {
     this.tickCount++
     if (this.players.size === 0) return
-    // Respawn dead players whose timer has elapsed.
     const now = Date.now()
-    for (const p of this.players.values()) {
-      if (!p.alive && now >= p.deadUntil) {
-        const spawn = this.spawns[Math.floor(Math.random() * this.spawns.length)]
-        p.respawn(spawn)
-        this.broadcast({ t: 'respawned', id: p.id, pos: p.pos })
+
+    // Match-clock expiry. We don't bother with this when there's no
+    // timer (duel) or when the previous expiry already flipped us into
+    // 'ended' — the actual eviction is the lobby's job.
+    if (
+      this.phase === 'playing' &&
+      this.matchEndsAt != null &&
+      now >= this.matchEndsAt
+    ) {
+      this.phase = 'ended'
+      this.endedAt = now
+      this.matchEndsAt = null
+      const results = this.buildLeaderboard()
+      this.broadcast({ t: 'matchEnded', results })
+      this.onStateChange()
+    }
+
+    // Respawn dead players whose timer has elapsed — only while the
+    // match is live. During 'ended' players freeze where they died.
+    if (this.phase === 'playing') {
+      for (const p of this.players.values()) {
+        if (!p.alive && now >= p.deadUntil) {
+          const spawn = this.spawns[Math.floor(Math.random() * this.spawns.length)]
+          p.respawn(spawn)
+          this.broadcast({ t: 'respawned', id: p.id, pos: p.pos })
+        }
       }
     }
+
     const players: PlayerSnap[] = []
     for (const p of this.players.values()) players.push(this.playerSnap(p))
-    this.broadcast({ t: 'snapshot', tick: this.tickCount, players })
+    this.broadcast({
+      t: 'snapshot',
+      tick: this.tickCount,
+      players,
+      phase: this.phase,
+      matchEndsAt: this.matchEndsAt,
+    })
+  }
+
+  /**
+   * Top-5 results, sorted by kills desc, ties broken by fewer deaths.
+   * Called once when the match clock expires.
+   */
+  private buildLeaderboard(): MatchResult[] {
+    const all: MatchResult[] = []
+    for (const p of this.players.values()) {
+      all.push({
+        id: p.id,
+        nickname: p.nickname,
+        kills: p.kills,
+        deaths: p.deaths,
+      })
+    }
+    all.sort((a, b) => b.kills - a.kills || a.deaths - b.deaths)
+    return all.slice(0, 5)
+  }
+
+  /**
+   * True when the room has been sitting in 'ended' long enough for the
+   * lobby to evict players back to the lobby screen.
+   */
+  shouldEvict(): boolean {
+    return this.phase === 'ended' && Date.now() - this.endedAt >= ENDED_HOLD_MS
+  }
+
+  /**
+   * Reset the room to a fresh-match state. Called by the lobby after
+   * evicting the previous match's players, so the next person who
+   * joins gets a full clock and zeroed stats.
+   */
+  resetMatch() {
+    this.phase = 'playing'
+    this.endedAt = 0
+    this.matchEndsAt =
+      this.matchDurationMs != null ? Date.now() + this.matchDurationMs : null
+    // Any players still left (shouldn't be after eviction, but be
+    // safe) get their stats wiped.
+    for (const p of this.players.values()) {
+      p.kills = 0
+      p.deaths = 0
+    }
   }
 
   private onHit(

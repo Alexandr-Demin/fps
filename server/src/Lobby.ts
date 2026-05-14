@@ -135,7 +135,10 @@ export class Lobby {
    * doesn't leave zombie rooms behind.
    */
   tick() {
-    for (const r of this.rooms.values()) r.tick()
+    for (const r of this.rooms.values()) {
+      r.tick()
+      if (r.shouldEvict()) this.evictAll(r)
+    }
     // Garbage-collect empty rooms (in case removePlayer leaves one alive
     // but unreachable). Not strictly necessary — handleClose / leaveRoom
     // already do it — but cheap insurance. Arena is exempt: it's the
@@ -147,6 +150,52 @@ export class Lobby {
         this.scheduleRoomListBroadcast()
       }
     }
+  }
+
+  /**
+   * End-of-match cleanup: kick every player in `room` back into the
+   * lobby (so their UI surfaces the end-screen-then-back-to-lobby
+   * transition), and reset the room so the next match starts fresh.
+   * Used by the per-tick check against Room.shouldEvict().
+   */
+  private evictAll(room: Room) {
+    const ws2conn = this.connections
+    const sendRoomLeft = () => {
+      // Recompute summaries once for everyone. Players being kicked
+      // see the room they were in still listed (arena) or removed
+      // (duel) on the next pass once removePlayer / resetMatch runs.
+      const rooms = this.roomSummaries()
+      for (const id of toEvict) {
+        const conn = byPlayerId.get(id)
+        if (!conn) continue
+        if (conn.ws.readyState !== WebSocket.OPEN) continue
+        try { conn.ws.send(JSON.stringify({ t: 'roomLeft', rooms })) } catch {}
+      }
+    }
+
+    const toEvict: PlayerId[] = []
+    const byPlayerId = new Map<PlayerId, Connection>()
+    for (const conn of ws2conn.values()) {
+      if (conn.room === room) {
+        toEvict.push(conn.id)
+        byPlayerId.set(conn.id, conn)
+      }
+    }
+
+    for (const id of toEvict) {
+      const conn = byPlayerId.get(id)
+      if (!conn) continue
+      conn.room = null
+      room.removePlayer(id)
+    }
+
+    // For duel rooms, the per-room destruction path runs below (count
+    // drops to 0 → GC). For arena, the room persists; reset the clock
+    // so the next JOIN gets a fresh match.
+    if (room.mode === 'arena') room.resetMatch()
+
+    sendRoomLeft()
+    this.scheduleRoomListBroadcast()
   }
 
   private handleClientMessage(conn: Connection, data: import('ws').RawData) {
@@ -235,8 +284,9 @@ export class Lobby {
 
     const maxPlayers = this.maxPlayersOverride ?? cfg.maxPlayers
     const id = 'r_' + ++this.nextRoomSeq
-    const room = new Room(id, mode, this.mapData, maxPlayers, () =>
-      this.scheduleRoomListBroadcast(),
+    const room = new Room(
+      id, mode, this.mapData, maxPlayers, cfg.matchDurationMs, () =>
+        this.scheduleRoomListBroadcast(),
     )
     this.rooms.set(id, room)
     room.addPlayer(conn.id, conn.nickname, conn.ws)
@@ -255,17 +305,25 @@ export class Lobby {
    */
   private getOrCreateArenaRoom(): Room {
     for (const r of this.rooms.values()) {
-      if (r.mode === 'arena') return r
+      if (r.mode === 'arena') {
+        // If the previous arena match already ended and the lobby just
+        // hasn't gotten around to evicting yet (e.g. a fast JOIN), make
+        // sure the new player drops into a fresh-match state rather
+        // than into the 10s end-screen window.
+        if (r.phase === 'ended') r.resetMatch()
+        return r
+      }
     }
     const cfg = MODE_CONFIG.arena
     const maxPlayers = this.maxPlayersOverride ?? cfg.maxPlayers
     const id = 'r_arena'
-    const room = new Room(id, 'arena', this.mapData, maxPlayers, () =>
-      this.scheduleRoomListBroadcast(),
+    const room = new Room(
+      id, 'arena', this.mapData, maxPlayers, cfg.matchDurationMs, () =>
+        this.scheduleRoomListBroadcast(),
     )
     this.rooms.set(id, room)
     console.log(
-      `[lobby] arena room ${id} (cap=${maxPlayers}) created on first join, rooms=${this.rooms.size}`,
+      `[lobby] arena room ${id} (cap=${maxPlayers}, durMs=${cfg.matchDurationMs}) created on first join, rooms=${this.rooms.size}`,
     )
     return room
   }

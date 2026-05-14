@@ -277,6 +277,9 @@ class NetClientImpl {
       case 'roomJoined': {
         const myId = this.myId
         useNetStore.getState().setCurrentRoomId(msg.roomId)
+        useNetStore.getState().setRoomPhase(msg.phase)
+        useNetStore.getState().setMatchEndsAt(msg.matchEndsAt)
+        useNetStore.getState().setMatchResults(null)
         useGameStore.getState().setCurrentMap(msg.map)
         useGameStore.getState().startMatch()
         useGameStore.getState().setPhase('mpPlaying')
@@ -290,6 +293,9 @@ class NetClientImpl {
       }
       case 'roomLeft': {
         useNetStore.getState().setCurrentRoomId(null)
+        useNetStore.getState().setRoomPhase('playing')
+        useNetStore.getState().setMatchEndsAt(null)
+        useNetStore.getState().setMatchResults(null)
         useNetStore.getState().clearRemotes()
         useNetStore.getState().setRooms(msg.rooms)
         useNetStore.getState().setPhase('lobby')
@@ -320,6 +326,19 @@ class NetClientImpl {
         useNetStore
           .getState()
           .upsertRemote(msg.players.filter((p) => p.id !== myId))
+        // Refresh authoritative match clock + phase. Cheap, prevents
+        // HUD drift across reconnects.
+        useNetStore.getState().setMatchEndsAt(msg.matchEndsAt)
+        useNetStore.getState().setRoomPhase(msg.phase)
+        break
+      }
+      case 'matchEnded': {
+        useNetStore.getState().setMatchResults(msg.results)
+        useNetStore.getState().setRoomPhase('ended')
+        useNetStore.getState().setMatchEndsAt(null)
+        // Release the cursor — the end-screen is an overlay UI, not a
+        // gameplay screen, and pointer-lock-during-overlay is annoying.
+        Input.exitLock()
         break
       }
       case 'playerJoined': {

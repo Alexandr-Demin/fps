@@ -4,6 +4,7 @@ import { ACESFilmicToneMapping, PCFSoftShadowMap, SRGBColorSpace } from 'three'
 import { Scene } from './scene/Scene'
 import { HUD } from './ui/HUD'
 import { MainMenu, DeathScreen, LevelSelect, PracticeSelect, MpPauseMenu } from './ui/Menu'
+import { MpEndScreen } from './ui/MpEndScreen'
 import { SettingsDialog } from './ui/SettingsDialog'
 import { Input } from './systems/input/input'
 import { useGameStore } from './state/gameStore'
@@ -174,6 +175,7 @@ export function App() {
       <MultiplayerConnect />
       <MpLobby />
       <MpPauseMenu />
+      <MpEndScreen />
       <MpReconnect />
       <DeathScreen />
       <SettingsDialog />

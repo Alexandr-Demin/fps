@@ -1167,6 +1167,81 @@ canvas { display: block; outline: none; }
 .lobby-room-mode.duel  { color: #3a8aff; }
 .lobby-room-mode.arena { color: #ffaa55; }
 
+/* HUD match clock — top-center countdown for arena. Tabular so the
+   digits don't jitter as seconds tick down. */
+.hud-match-clock {
+  position: fixed;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 4;
+  pointer-events: none;
+  font-size: 22px;
+  letter-spacing: 0.25em;
+  font-variant-numeric: tabular-nums;
+  color: #ffaa55;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
+}
+
+/* End-of-match overlay — full-screen card with the top-5 leaderboard. */
+.end-screen {
+  background: rgba(0, 0, 0, 0.7);
+}
+.end-screen-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 32px 48px;
+  background: rgba(10, 14, 22, 0.9);
+  border: 1px solid rgba(255, 170, 85, 0.35);
+  min-width: 480px;
+  color: var(--fg);
+}
+.end-screen-card h1 {
+  color: #ffaa55;
+  letter-spacing: 0.2em;
+  margin: 0;
+}
+.end-screen-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 12px;
+  width: 100%;
+}
+.end-screen-row {
+  display: grid;
+  grid-template-columns: 56px 1fr auto;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 14px;
+  background: rgba(10, 14, 22, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  font-size: 14px;
+  letter-spacing: 0.05em;
+}
+.end-screen-row.winner {
+  border-color: #ffaa55;
+  background: rgba(255, 170, 85, 0.08);
+}
+.end-screen-row.me {
+  outline: 1px solid #3a8aff;
+}
+.end-screen-rank {
+  font-variant-numeric: tabular-nums;
+  color: var(--fg-dim);
+  letter-spacing: 0.2em;
+}
+.end-screen-row.winner .end-screen-rank { color: #ffaa55; }
+.end-screen-name { letter-spacing: 0.06em; }
+.end-screen-kd {
+  font-variant-numeric: tabular-nums;
+  color: var(--fg-dim);
+}
+.end-screen-kd .kills { color: var(--fg); }
+.end-screen-kd .deaths { color: var(--fg-dim); }
+
 /* Arena lobby player roster — one row per player currently in the
    singleton arena room. Lighter weight than a clickable .lobby-room
    because the user already knows where they're going. */

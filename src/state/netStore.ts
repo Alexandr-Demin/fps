@@ -1,5 +1,11 @@
 import { create } from 'zustand'
-import type { GameMode, PlayerSnap, RoomSummary } from '@shared/protocol'
+import type {
+  GameMode,
+  MatchResult,
+  PlayerSnap,
+  RoomPhase,
+  RoomSummary,
+} from '@shared/protocol'
 
 const NICKNAME_KEY = 'sector17.nickname'
 
@@ -39,6 +45,17 @@ interface NetState {
   rooms: RoomSummary[]
   // Current room id when in-room; null while in the lobby phase.
   currentRoomId: string | null
+  // Match-phase mirror of the room we're currently in. Drives the
+  // end-of-match overlay. Defaults to 'playing'; flips to 'ended'
+  // when the matchEnded event arrives.
+  currentRoomPhase: RoomPhase
+  // Epoch ms the current match ends at, or null when the mode has no
+  // timer (duel). Updated from every snapshot so HUD countdown stays
+  // accurate across brief disconnects.
+  currentMatchEndsAt: number | null
+  // Final top-5 leaderboard set by the matchEnded event. Cleared on
+  // join / leave. The MpEndScreen renders this.
+  currentMatchResults: MatchResult[] | null
   // Round-trip latency in milliseconds, refreshed on each pong reply.
   // null when not connected (or before the first pong lands).
   rttMs: number | null
@@ -57,6 +74,9 @@ interface NetState {
   setRtt: (ms: number | null) => void
   setRooms: (rooms: RoomSummary[]) => void
   setCurrentRoomId: (id: string | null) => void
+  setRoomPhase: (p: RoomPhase) => void
+  setMatchEndsAt: (ms: number | null) => void
+  setMatchResults: (r: MatchResult[] | null) => void
   setReconnect: (state: {
     reconnecting: boolean
     attempt: number
@@ -96,6 +116,9 @@ export const useNetStore = create<NetState>((set) => ({
   lobbyMode: 'duel',
   rooms: [],
   currentRoomId: null,
+  currentRoomPhase: 'playing',
+  currentMatchEndsAt: null,
+  currentMatchResults: null,
   rttMs: null,
   reconnecting: false,
   reconnectAttempt: 0,
@@ -115,6 +138,9 @@ export const useNetStore = create<NetState>((set) => ({
   setRtt: (ms) => set({ rttMs: ms }),
   setRooms: (rooms) => set({ rooms }),
   setCurrentRoomId: (id) => set({ currentRoomId: id }),
+  setRoomPhase: (p) => set({ currentRoomPhase: p }),
+  setMatchEndsAt: (ms) => set({ currentMatchEndsAt: ms }),
+  setMatchResults: (r) => set({ currentMatchResults: r }),
   setReconnect: ({ reconnecting, attempt, max }) =>
     set({
       reconnecting,

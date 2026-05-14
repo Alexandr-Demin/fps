@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useGameStore } from '../state/gameStore'
+import { useNetStore } from '../state/netStore'
 import { PLAYER, WEAPON, MATCH } from '../core/constants'
 import { Input } from '../systems/input/input'
 import { FpsCounter } from './FpsCounter'
@@ -18,6 +19,10 @@ export function HUD() {
   const botsCanDamage = useGameStore((s) => s.botsCanDamage)
   const showHitboxes = useGameStore((s) => s.showHitboxes)
   const phase = useGameStore((s) => s.phase)
+  // Arena match-clock — null on duel and SP. Re-read each frame via the
+  // outer raf below so the displayed countdown stays smooth without
+  // forcing a per-second store update.
+  const matchEndsAt = useNetStore((s) => s.currentMatchEndsAt)
   // In MP, always show the FPS / ping panel — ping is non-debug info
   // players want to see at a glance. SP keeps it as a debug-toggle thing.
   const isMp = phase === 'mpPlaying'
@@ -40,10 +45,24 @@ export function HUD() {
   const damageActive = now - lastDamageAt < 0.25
   const aiming = Input.state.aimHeld
 
+  // MM:SS countdown for arena. now is in seconds-since-epoch via
+  // performance.now()/1000 (the existing `now` raf state); matchEndsAt
+  // is Date.now() epoch ms — convert. Negative remainders clamp to 0.
+  let countdown: string | null = null
+  if (isMp && matchEndsAt != null) {
+    const remSec = Math.max(0, Math.floor((matchEndsAt - Date.now()) / 1000))
+    const mm = Math.floor(remSec / 60)
+    const ss = remSec % 60
+    countdown = `${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}`
+  }
+
   return (
     <div className="overlay">
       <div className="scanline-frame" />
       <div className="hud">
+        {countdown && (
+          <div className="hud-match-clock">{countdown}</div>
+        )}
         <div className="hud-top">
           <div className="hud-block">
             <div className="hud-label">SECTOR-17 // KZ-7 HEAVY</div>

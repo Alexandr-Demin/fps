@@ -2,7 +2,7 @@ import type { MapData } from '../../src/core/mapTypes'
 
 // Bump on any breaking protocol change. Clients with a different version
 // are rejected at hello-time.
-export const PROTOCOL_VERSION = 7
+export const PROTOCOL_VERSION = 8
 export type Vec3 = [number, number, number]
 export type PlayerId = string
 export type RoomId = string
@@ -33,6 +33,24 @@ export const MAX_PLAYERS_PER_ROOM = 2
 
 export type RoomState = 'waiting' | 'playing'
 
+// Match phase. Drives end-of-match overlay and timer display.
+//   - 'playing' — match is live, hits resolve normally.
+//   - 'ended'   — match clock hit zero, end-screen visible, hits muted,
+//                 server will evict players back to the lobby ~10s later.
+//   - 'waiting' — reserved for future use (pre-match countdown in
+//                 step 4.7 once bots can fill an empty arena).
+// Duel rooms have no timer (MODE_CONFIG.matchDurationMs is null) and
+// stay in 'playing' for their entire lifetime.
+export type RoomPhase = 'waiting' | 'playing' | 'ended'
+
+// One entry in the end-of-match leaderboard.
+export interface MatchResult {
+  id: PlayerId
+  nickname: string
+  kills: number
+  deaths: number
+}
+
 export interface RoomSummary {
   id: RoomId
   hostName: string
@@ -40,6 +58,9 @@ export interface RoomSummary {
   max: number
   state: RoomState
   mode: GameMode
+  // Match phase, used by the lobby to show ENDED / etc badges. Duel
+  // rooms always report 'playing'.
+  phase: RoomPhase
   // Pre-join roster — used by the arena lobby to show who's already in
   // the singleton arena room before you join. Included for every room
   // (duel rooms also carry it; the duel UI just doesn't render it).
@@ -80,18 +101,45 @@ export type S2C =
   | { t: 'roomList'; rooms: RoomSummary[] }
   // After createRoom / joinRoom: now you're in the room. Contains the same
   // info the pre-lobby `welcome` used to carry.
-  | { t: 'roomJoined'; roomId: RoomId; mode: GameMode; map: MapData; tick: number; players: PlayerSnap[] }
+  | {
+      t: 'roomJoined'
+      roomId: RoomId
+      mode: GameMode
+      map: MapData
+      tick: number
+      players: PlayerSnap[]
+      // Match phase at join-time; clients render the end-screen if
+      // they happen to join while phase === 'ended'.
+      phase: RoomPhase
+      // Epoch ms when the current match ends. null when the mode has
+      // no timer (duel) or when phase is 'ended' (no match running).
+      matchEndsAt: number | null
+    }
   // After leaveRoom: dropped back into the lobby.
   | { t: 'roomLeft'; rooms: RoomSummary[] }
   | { t: 'reject'; reason: string }
   // In-room broadcasts
   | { t: 'playerJoined'; player: PlayerSnap }
   | { t: 'playerLeft'; id: PlayerId }
-  | { t: 'snapshot'; tick: number; players: PlayerSnap[] }
+  | {
+      t: 'snapshot'
+      tick: number
+      players: PlayerSnap[]
+      // Carried every tick so a client that joins mid-match or briefly
+      // disconnects gets a fresh authoritative clock and phase. null if
+      // mode has no timer / between matches.
+      phase: RoomPhase
+      matchEndsAt: number | null
+    }
   | { t: 'pong'; ts: number }
   | { t: 'damaged'; target: PlayerId; attacker: PlayerId; amount: number; hp: number; zone: HitZone }
   | { t: 'died'; target: PlayerId; attacker: PlayerId; respawnAt: number }
   | { t: 'respawned'; id: PlayerId; pos: Vec3 }
   | { t: 'shotFired'; shooter: PlayerId; origin: Vec3; dir: Vec3 }
+  // Broadcast once when the match clock expires. `results` is sorted
+  // by kills desc, then deaths asc, top-5 only. Triggers the
+  // MpEndScreen overlay; server evicts players back to the lobby ~10s
+  // after this event.
+  | { t: 'matchEnded'; results: MatchResult[] }
 
 export type { MapData }
