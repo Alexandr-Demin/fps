@@ -6,6 +6,7 @@ import {
   type AnimationAction,
   type AnimationClip,
   type Group,
+  LoopOnce,
   LoopRepeat,
 } from 'three'
 import * as SkeletonUtils from 'three/examples/jsm/utils/SkeletonUtils.js'
@@ -13,10 +14,17 @@ import { PLAYER } from '../../core/constants'
 import type { PlayerState } from '@shared/protocol'
 
 const WALK_FBX = '/assets/character/walk.fbx'
-const RUN_FBX = '/assets/character/run.fbx'
+// Mixamo "Run Forward" — forward run cycle. Replaced the earlier
+// generic "Run" because Run Forward has a cleaner, more aligned
+// forward gait suited to FPS locomotion.
+const RUN_FBX = '/assets/character/run_forward.fbx'
 const STRAFE_FBX = '/assets/character/strafe.fbx'
 const IDLE_FBX = '/assets/character/idle.fbx'
 const JUMP_FBX = '/assets/character/jump.fbx'
+// Mixamo "Start Walking" — short one-shot transition from standstill
+// into the walking gait. Played LoopOnce on idle→walk so the body
+// doesn't snap into a mid-stride pose.
+const START_WALKING_FBX = '/assets/character/start_walking.fbx'
 
 // Mixamo files export in centimetres; Three.js works in metres.
 const MIXAMO_SCALE = 0.01
@@ -39,7 +47,7 @@ const RUN_MIN_SPEED = 7.0
 const JUMP_MIN_ABS_VY = 1.5
 const FADE_S = 0.2
 
-type ClipName = 'idle' | 'walk' | 'run' | 'strafe' | 'jump'
+type ClipName = 'idle' | 'walk' | 'run' | 'strafe' | 'jump' | 'startWalk'
 
 export interface CharacterMotion {
   // Horizontal speed in m/s, post-lerp smoothed.
@@ -97,6 +105,7 @@ export function CharacterModel({
   const strafeFBX = useFBX(STRAFE_FBX) as Group
   const idleFBX = useFBX(IDLE_FBX) as Group
   const jumpFBX = useFBX(JUMP_FBX) as Group
+  const startWalkFBX = useFBX(START_WALKING_FBX) as Group
 
   // Per-role base mesh — humans get the walk.fbx character (the one
   // skinned with the rifle-hold pose); bots get the idle.fbx character
@@ -119,14 +128,16 @@ export function CharacterModel({
     const s = strafeFBX.animations[0]?.clone()
     const i = idleFBX.animations[0]?.clone()
     const j = jumpFBX.animations[0]?.clone()
+    const sw = startWalkFBX.animations[0]?.clone()
     return {
       walk: w ? stripRootMotion(w) : null,
       run: r ? stripRootMotion(r) : null,
       strafe: s ? stripRootMotion(s) : null,
       idle: i ? stripRootMotion(i) : null,
       jump: j ? stripRootMotion(j) : null,
+      startWalk: sw ? stripRootMotion(sw) : null,
     } as Record<ClipName, AnimationClip | null>
-  }, [walkFBX, runFBX, strafeFBX, idleFBX, jumpFBX])
+  }, [walkFBX, runFBX, strafeFBX, idleFBX, jumpFBX, startWalkFBX])
 
   const mixer = useMemo(() => new AnimationMixer(scene), [scene])
   const currentAction = useRef<AnimationAction | null>(null)
@@ -164,6 +175,19 @@ export function CharacterModel({
     }
   }, [mixer, scene])
 
+  // When a one-shot transition like 'startWalk' completes, blank the
+  // currentClipName so the next-frame picker re-evaluates and cross-
+  // fades into whatever the state machine wants now (usually 'walk').
+  useEffect(() => {
+    const onFinished = () => {
+      if (currentClipName.current === 'startWalk') {
+        currentClipName.current = ''
+      }
+    }
+    mixer.addEventListener('finished', onFinished)
+    return () => mixer.removeEventListener('finished', onFinished)
+  }, [mixer])
+
   useFrame((_, dt) => {
     mixer.update(dt)
 
@@ -174,26 +198,34 @@ export function CharacterModel({
       : 1
     for (const m of materialsRef.current) m.opacity = opacity
 
-    // Pick clip from state + visible horizontal / vertical speed. Only
-    // act on change — the cross-fade isn't free and re-triggering it
-    // every frame would never let any clip settle. Priority order:
-    //   1. airborne → jump
-    //   2. sliding state → strafe (closest visual we have)
-    //   3. running speed → run
-    //   4. walking speed → walk
-    //   5. otherwise → idle
+    // Pick clip from state + visible horizontal / vertical speed.
+    // Priority: airborne → sliding → run → walk → idle. The walk
+    // entry is bracketed by the start_walking one-shot so the body
+    // doesn't snap into a mid-stride pose when leaving idle.
     const motion = motionRef.current
-    let next: ClipName
+    let target: ClipName
     if (Math.abs(motion.vertical) > JUMP_MIN_ABS_VY) {
-      next = 'jump'
+      target = 'jump'
     } else if (state === 'sliding') {
-      next = 'strafe'
+      target = 'strafe'
     } else if (motion.horizontal >= RUN_MIN_SPEED) {
-      next = 'run'
+      target = 'run'
     } else if (motion.horizontal > IDLE_MAX_SPEED) {
-      next = 'walk'
+      target = 'walk'
     } else {
-      next = 'idle'
+      target = 'idle'
+    }
+
+    // Insert the start_walking transition when leaving idle for walk.
+    // While startWalk is still playing, keep it unless the state has
+    // moved off 'walk' (sprint / stop / jump etc) — in those cases
+    // interrupt and cross-fade to the new target.
+    let next: ClipName = target
+    if (currentClipName.current === 'idle' && target === 'walk') {
+      next = 'startWalk'
+    } else if (currentClipName.current === 'startWalk') {
+      if (target === 'walk') return // keep playing the transition
+      next = target
     }
 
     if (currentClipName.current === next) return
@@ -201,7 +233,17 @@ export function CharacterModel({
     if (!clip) return
 
     const newAction = mixer.clipAction(clip)
-    newAction.reset().setLoop(LoopRepeat, Infinity).fadeIn(FADE_S).play()
+    if (next === 'startWalk') {
+      // One-shot, clamps at last frame; the mixer 'finished' listener
+      // above blanks currentClipName so the picker re-evaluates next
+      // frame and cross-fades into walk (or whatever's appropriate).
+      newAction.setLoop(LoopOnce, 1)
+      newAction.clampWhenFinished = true
+    } else {
+      newAction.setLoop(LoopRepeat, Infinity)
+      newAction.clampWhenFinished = false
+    }
+    newAction.reset().fadeIn(FADE_S).play()
     const prev = currentAction.current
     if (prev && prev !== newAction) prev.fadeOut(FADE_S)
 
@@ -229,4 +271,5 @@ export function preloadCharacterAssets() {
   useFBX.preload(STRAFE_FBX)
   useFBX.preload(IDLE_FBX)
   useFBX.preload(JUMP_FBX)
+  useFBX.preload(START_WALKING_FBX)
 }
