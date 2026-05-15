@@ -6,13 +6,16 @@ import {
   type AnimationAction,
   type AnimationClip,
   type Group,
-  LoopOnce,
   LoopRepeat,
 } from 'three'
 import * as SkeletonUtils from 'three/examples/jsm/utils/SkeletonUtils.js'
 import { PLAYER } from '../../core/constants'
 import type { PlayerState } from '@shared/protocol'
 
+// Walk With Rifle file. Kept only as the source skin for human players
+// — its rifle-hold pose was reading as a T-pose-to-arms-forward snap
+// at the loop seam, so the looped walk clip now comes from
+// start_walking.fbx instead (natural gait, arms swinging).
 const WALK_FBX = '/assets/character/walk.fbx'
 // Mixamo "Run Forward" — forward run cycle. Replaced the earlier
 // generic "Run" because Run Forward has a cleaner, more aligned
@@ -21,10 +24,10 @@ const RUN_FBX = '/assets/character/run_forward.fbx'
 const STRAFE_FBX = '/assets/character/strafe.fbx'
 const IDLE_FBX = '/assets/character/idle.fbx'
 const JUMP_FBX = '/assets/character/jump.fbx'
-// Mixamo "Start Walking" — short one-shot transition from standstill
-// into the walking gait. Played LoopOnce on idle→walk so the body
-// doesn't snap into a mid-stride pose.
-const START_WALKING_FBX = '/assets/character/start_walking.fbx'
+// Mixamo "Start Walking" — repurposed as the looped walk cycle. The
+// name implies a one-shot transition, but the clip itself is a clean
+// loopable gait and reads better than Walk With Rifle for our FPS use.
+const WALK_CLIP_FBX = '/assets/character/start_walking.fbx'
 
 // Mixamo files export in centimetres; Three.js works in metres.
 const MIXAMO_SCALE = 0.01
@@ -47,7 +50,7 @@ const RUN_MIN_SPEED = 7.0
 const JUMP_MIN_ABS_VY = 1.5
 const FADE_S = 0.2
 
-type ClipName = 'idle' | 'walk' | 'run' | 'strafe' | 'jump' | 'startWalk'
+type ClipName = 'idle' | 'walk' | 'run' | 'strafe' | 'jump'
 
 export interface CharacterMotion {
   // Horizontal speed in m/s, post-lerp smoothed.
@@ -105,7 +108,7 @@ export function CharacterModel({
   const strafeFBX = useFBX(STRAFE_FBX) as Group
   const idleFBX = useFBX(IDLE_FBX) as Group
   const jumpFBX = useFBX(JUMP_FBX) as Group
-  const startWalkFBX = useFBX(START_WALKING_FBX) as Group
+  const walkClipFBX = useFBX(WALK_CLIP_FBX) as Group
 
   // Per-role base mesh — humans get the walk.fbx character (the one
   // skinned with the rifle-hold pose); bots get the idle.fbx character
@@ -121,23 +124,24 @@ export function CharacterModel({
   )
 
   // Clip library, root motion stripped once per source. clone() so we
-  // don't mutate the cached drei-managed clip arrays.
+  // don't mutate the cached drei-managed clip arrays. The walk clip
+  // comes from start_walking.fbx, not walk.fbx — the latter's
+  // tactical rifle-hold pose was reading as a T-pose-to-forward arm
+  // snap on the loop boundary.
   const clips = useMemo(() => {
-    const w = walkFBX.animations[0]?.clone()
+    const w = walkClipFBX.animations[0]?.clone()
     const r = runFBX.animations[0]?.clone()
     const s = strafeFBX.animations[0]?.clone()
     const i = idleFBX.animations[0]?.clone()
     const j = jumpFBX.animations[0]?.clone()
-    const sw = startWalkFBX.animations[0]?.clone()
     return {
       walk: w ? stripRootMotion(w) : null,
       run: r ? stripRootMotion(r) : null,
       strafe: s ? stripRootMotion(s) : null,
       idle: i ? stripRootMotion(i) : null,
       jump: j ? stripRootMotion(j) : null,
-      startWalk: sw ? stripRootMotion(sw) : null,
     } as Record<ClipName, AnimationClip | null>
-  }, [walkFBX, runFBX, strafeFBX, idleFBX, jumpFBX, startWalkFBX])
+  }, [walkClipFBX, runFBX, strafeFBX, idleFBX, jumpFBX])
 
   const mixer = useMemo(() => new AnimationMixer(scene), [scene])
   const currentAction = useRef<AnimationAction | null>(null)
@@ -175,19 +179,6 @@ export function CharacterModel({
     }
   }, [mixer, scene])
 
-  // When a one-shot transition like 'startWalk' completes, blank the
-  // currentClipName so the next-frame picker re-evaluates and cross-
-  // fades into whatever the state machine wants now (usually 'walk').
-  useEffect(() => {
-    const onFinished = () => {
-      if (currentClipName.current === 'startWalk') {
-        currentClipName.current = ''
-      }
-    }
-    mixer.addEventListener('finished', onFinished)
-    return () => mixer.removeEventListener('finished', onFinished)
-  }, [mixer])
-
   useFrame((_, dt) => {
     mixer.update(dt)
 
@@ -199,33 +190,19 @@ export function CharacterModel({
     for (const m of materialsRef.current) m.opacity = opacity
 
     // Pick clip from state + visible horizontal / vertical speed.
-    // Priority: airborne → sliding → run → walk → idle. The walk
-    // entry is bracketed by the start_walking one-shot so the body
-    // doesn't snap into a mid-stride pose when leaving idle.
+    // Priority: airborne → sliding → run → walk → idle.
     const motion = motionRef.current
-    let target: ClipName
+    let next: ClipName
     if (Math.abs(motion.vertical) > JUMP_MIN_ABS_VY) {
-      target = 'jump'
+      next = 'jump'
     } else if (state === 'sliding') {
-      target = 'strafe'
+      next = 'strafe'
     } else if (motion.horizontal >= RUN_MIN_SPEED) {
-      target = 'run'
+      next = 'run'
     } else if (motion.horizontal > IDLE_MAX_SPEED) {
-      target = 'walk'
+      next = 'walk'
     } else {
-      target = 'idle'
-    }
-
-    // Insert the start_walking transition when leaving idle for walk.
-    // While startWalk is still playing, keep it unless the state has
-    // moved off 'walk' (sprint / stop / jump etc) — in those cases
-    // interrupt and cross-fade to the new target.
-    let next: ClipName = target
-    if (currentClipName.current === 'idle' && target === 'walk') {
-      next = 'startWalk'
-    } else if (currentClipName.current === 'startWalk') {
-      if (target === 'walk') return // keep playing the transition
-      next = target
+      next = 'idle'
     }
 
     if (currentClipName.current === next) return
@@ -233,17 +210,7 @@ export function CharacterModel({
     if (!clip) return
 
     const newAction = mixer.clipAction(clip)
-    if (next === 'startWalk') {
-      // One-shot, clamps at last frame; the mixer 'finished' listener
-      // above blanks currentClipName so the picker re-evaluates next
-      // frame and cross-fades into walk (or whatever's appropriate).
-      newAction.setLoop(LoopOnce, 1)
-      newAction.clampWhenFinished = true
-    } else {
-      newAction.setLoop(LoopRepeat, Infinity)
-      newAction.clampWhenFinished = false
-    }
-    newAction.reset().fadeIn(FADE_S).play()
+    newAction.reset().setLoop(LoopRepeat, Infinity).fadeIn(FADE_S).play()
     const prev = currentAction.current
     if (prev && prev !== newAction) prev.fadeOut(FADE_S)
 
@@ -271,5 +238,5 @@ export function preloadCharacterAssets() {
   useFBX.preload(STRAFE_FBX)
   useFBX.preload(IDLE_FBX)
   useFBX.preload(JUMP_FBX)
-  useFBX.preload(START_WALKING_FBX)
+  useFBX.preload(WALK_CLIP_FBX)
 }
