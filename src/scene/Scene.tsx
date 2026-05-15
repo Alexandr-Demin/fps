@@ -11,6 +11,7 @@ import { Weapon } from '../systems/combat/Weapon'
 import { BotSwarm } from '../systems/ai/BotSwarm'
 import { MapLoader } from './map/MapLoader'
 import { TargetDummies } from '../systems/dev/TargetDummy'
+import { CharacterWarmup } from '../systems/character/CharacterWarmup'
 import { useGameStore } from '../state/gameStore'
 import { EditorScene } from '../editor/EditorScene'
 import { NetRoom } from '../systems/net/NetRoom'
@@ -46,6 +47,11 @@ export function Scene() {
       <FogSetter />
       <color attach="background" args={[isEditor ? '#1a2030' : '#080a0e']} />
       {!isEditor && <Lighting />}
+
+      {/* Pre-mount one invisible character so the FBX-parse / mixer /
+          shader-compile cost is paid once at boot, not on the first
+          remote player or bot spawn. */}
+      <CharacterWarmup />
 
       {isEditor ? (
         // Editor scene: no physics, no gameplay systems. The editor renders

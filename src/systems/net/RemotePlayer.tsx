@@ -21,7 +21,7 @@ import {
   registerRemotePlayerCollider,
   unregisterRemotePlayerCollider,
 } from '../combat/hitscan'
-import { CharacterModel } from '../character/CharacterModel'
+import { CharacterModel, type CharacterMotion } from '../character/CharacterModel'
 
 // Module-level map of remote-player-id → performance.now() of the latest
 // shot. NetClient writes here when a `shotFired` event arrives; each
@@ -49,11 +49,11 @@ export function RemotePlayer({ snap }: { snap: PlayerSnap }) {
 
   const target = useRef(new Vector3(snap.pos[0], snap.pos[1], snap.pos[2]))
   const yawTarget = useRef(snap.yaw)
-  // Visual horizontal speed (m/s), smoothed across frames so the
-  // walk↔run threshold doesn't jitter from one snapshot's lerp tail.
+  // Visual motion state, smoothed across frames so threshold checks
+  // (walk↔run, airborne) don't jitter from one snapshot's lerp tail.
   // Fed to CharacterModel through a ref to avoid forcing a re-render
   // every frame.
-  const speedRef = useRef(0)
+  const motionRef = useRef<CharacterMotion>({ horizontal: 0, vertical: 0 })
   const lastPos = useRef(new Vector3(snap.pos[0], snap.pos[1], snap.pos[2]))
   // Capsule top in world-space depends on the current pose. Used to keep
   // the nickname / HP bar billboards just above the visible silhouette
@@ -113,15 +113,22 @@ export function RemotePlayer({ snap }: { snap: PlayerSnap }) {
       bodyRef.current.setNextKinematicTranslation({ x: p.x, y: p.y, z: p.z })
     }
 
-    // Visible horizontal speed for the animation state machine. We
-    // take it off the post-lerp visual position rather than off the
-    // raw snap so the value is stable between snapshots. EMA smooth
-    // so a brief stall doesn't flap walk↔idle.
+    // Visible motion for the animation state machine. We take it off
+    // the post-lerp visual position rather than off the raw snap so
+    // the value is stable between snapshots. EMA smoothing so a
+    // brief stall doesn't flap walk↔idle, but keep the vertical
+    // smoothing tighter so the jump-airborne transition triggers
+    // promptly.
     const cur = g.position
     const sdx = cur.x - lastPos.current.x
+    const sdy = cur.y - lastPos.current.y
     const sdz = cur.z - lastPos.current.z
-    const inst = Math.hypot(sdx, sdz) / Math.max(0.001, dt)
-    speedRef.current = speedRef.current * 0.8 + inst * 0.2
+    const invDt = 1 / Math.max(0.001, dt)
+    const instH = Math.hypot(sdx, sdz) * invDt
+    const instV = sdy * invDt
+    const m = motionRef.current
+    m.horizontal = m.horizontal * 0.8 + instH * 0.2
+    m.vertical = m.vertical * 0.6 + instV * 0.4
     lastPos.current.set(cur.x, cur.y, cur.z)
 
     // Pose lerp — squash + drop the inner pose group when the remote is
@@ -217,7 +224,7 @@ export function RemotePlayer({ snap }: { snap: PlayerSnap }) {
           <Suspense fallback={null}>
             <CharacterModel
               state={snap.state}
-              speedRef={speedRef}
+              motionRef={motionRef}
               isBot={snap.isBot}
               protectedFlag={snap.protected}
             />
