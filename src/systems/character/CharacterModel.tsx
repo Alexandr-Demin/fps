@@ -98,10 +98,18 @@ export function CharacterModel({
   const idleFBX = useFBX(IDLE_FBX) as Group
   const jumpFBX = useFBX(JUMP_FBX) as Group
 
-  // Per-instance mesh clone. SkeletonUtils.clone preserves the
-  // skinned-mesh ↔ skeleton link across copies so each remote player
-  // animates independently.
-  const scene = useMemo(() => SkeletonUtils.clone(walkFBX) as Group, [walkFBX])
+  // Per-role base mesh — humans get the walk.fbx character (the one
+  // skinned with the rifle-hold pose); bots get the idle.fbx character
+  // (which on Mixamo's Orc Idle page is bound to the orc model by
+  // default). SkeletonUtils.clone preserves the skinned-mesh ↔
+  // skeleton link so each remote player animates independently, and
+  // every Mixamo character shares the same `mixamorig:*` bone naming
+  // so all five clips apply to either mesh without translation.
+  const baseFBX = isBot ? idleFBX : walkFBX
+  const scene = useMemo(
+    () => SkeletonUtils.clone(baseFBX) as Group,
+    [baseFBX],
+  )
 
   // Clip library, root motion stripped once per source. clone() so we
   // don't mutate the cached drei-managed clip arrays.
@@ -129,16 +137,16 @@ export function CharacterModel({
   const materialsRef = useRef<any[]>([])
 
   // Material tint — Mixamo characters default to a beige skin; recolour
-  // them so bots read as "test fixtures" and humans stay close to the
-  // old arena-blue silhouette. transparent=true is required so the
-  // protection ping-pong below can drive opacity.
+  // them so bots read as "orc-themed test fixtures" and humans stay
+  // close to the old arena-blue silhouette. transparent=true is
+  // required so the protection ping-pong below can drive opacity.
   useEffect(() => {
     const mats: any[] = []
     scene.traverse((o: any) => {
       if (o.isSkinnedMesh && o.material) {
         const arr = Array.isArray(o.material) ? o.material : [o.material]
         for (const m of arr) {
-          if (m.color) m.color.set(isBot ? '#5a6470' : '#a8b8d0')
+          if (m.color) m.color.set(isBot ? '#7a8b3a' : '#a8b8d0')
           m.transparent = true
           m.opacity = 1
           mats.push(m)
