@@ -98,7 +98,11 @@ export function RemotePlayer({ snap }: { snap: PlayerSnap }) {
   useFrame((_, dt) => {
     const g = visualRef.current
     if (!g) return
-    const k = Math.min(1, dt * 12)
+    // Tighter lerp than the original capsule (12 → 20). With the
+    // skinned model the exponential catch-up between snapshots was
+    // visible as a per-snapshot shudder; faster lerp tracks the
+    // authoritative snap position more closely and hides the jitter.
+    const k = Math.min(1, dt * 20)
     g.position.lerp(target.current, k)
     // Yaw lerp with ±π wrap-around handling
     let dy = yawTarget.current - g.rotation.y

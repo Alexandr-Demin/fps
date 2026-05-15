@@ -84,11 +84,55 @@ class InputManager {
     this.listeners = []
   }
 
+  // True while a deferred retry is pending — guards against piling up
+  // multiple setTimeouts when several systems call requestLock during a
+  // single browser cooldown window.
+  private lockRetryQueued = false
+
   requestLock() {
     if (!this.boundElement) return
-    if (document.pointerLockElement !== this.boundElement) {
-      this.boundElement.requestPointerLock?.()
+    if (document.pointerLockElement === this.boundElement) return
+    // Modern browsers reject requestPointerLock() with a SecurityError
+    // when called too soon after exitPointerLock() (≈1.25s cooldown in
+    // Chrome). The API returns a Promise on success; older versions
+    // return undefined. Handle both — and if it throws synchronously
+    // (Firefox can), catch that too.
+    let p: Promise<void> | undefined
+    try {
+      p = this.boundElement.requestPointerLock?.() as
+        | Promise<void>
+        | undefined
+    } catch {
+      this.scheduleLockRetry()
+      return
     }
+    if (p && typeof p.then === 'function') {
+      p.catch(() => this.scheduleLockRetry())
+    }
+  }
+
+  private scheduleLockRetry() {
+    if (this.lockRetryQueued) return
+    this.lockRetryQueued = true
+    setTimeout(() => {
+      this.lockRetryQueued = false
+      // Only retry if we still want the lock — phase may have moved on
+      // to pause / menu / lobby while we were waiting for the cooldown.
+      if (!this.boundElement) return
+      if (document.pointerLockElement === this.boundElement) return
+      try {
+        const p = this.boundElement.requestPointerLock?.() as
+          | Promise<void>
+          | undefined
+        if (p && typeof p.then === 'function') {
+          p.catch(() => {
+            /* give up; next user click on the canvas will retry */
+          })
+        }
+      } catch {
+        /* same — let a user gesture re-arm us */
+      }
+    }, 1300)
   }
 
   exitLock() {

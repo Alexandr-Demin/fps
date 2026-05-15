@@ -55,7 +55,13 @@ export interface CharacterMotion {
  * place and the server position is the sole source of locomotion.
  */
 function stripRootMotion(clip: AnimationClip): AnimationClip {
-  clip.tracks = clip.tracks.filter((t) => !/Hips\.position$/i.test(t.name))
+  // Strip both .position and .scale tracks on the Hips bone. Position
+  // is the obvious one (root forward translation + walking bob). Scale
+  // tracks are rare in Mixamo exports but show up occasionally and
+  // would cause the body to pulse if left in place.
+  clip.tracks = clip.tracks.filter(
+    (t) => !/Hips\.(position|scale)$/i.test(t.name),
+  )
   return clip
 }
 
